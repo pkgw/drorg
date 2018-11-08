@@ -1,0 +1,17 @@
+[package]
+name = "driver"
+version = "0.1.0"
+authors = ["Peter Williams <peter@newton.cx>"]
+description = "Manage Google Drive documents efficiently."
+homepage = "https://github.com/pkgw/driver/"
+documentation = "https://docs.rs/crate/driver"
+repository = "https://github.com/pkgw/driver/"
+readme = "README.md"
+license = "MIT"
+
+[workspace]
+
+[dependencies]
+failure = "0.1"
+google-drive3 = "1.0"
+structopt = "0.2"
