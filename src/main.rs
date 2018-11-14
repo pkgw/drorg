@@ -55,6 +55,50 @@ fn get_http_client() -> Result<hyper::Client, Error> {
 }
 
 
+/// Temp? List documents.
+#[derive(Debug, StructOpt)]
+pub struct DriverListOptions {}
+
+impl DriverListOptions {
+    fn cli(self) -> Result<i32, Error> {
+        let secret = get_app_secret()?;
+        let mut multi_storage = token_storage::get_storage()?;
+
+        multi_storage.foreach(|(email, tokens)| {
+            let auth = Authenticator::new(
+                &secret,
+                DefaultAuthenticatorDelegate,
+                get_http_client()?,
+                tokens,
+                None
+            );
+
+            let hub = google_drive3::Drive::new(get_http_client()?, auth);
+
+            println!("{}:", email);
+
+            let (_resp, listing) = match hub.files().list().doit() {
+                Ok(x) => x,
+                Err(e) => return Err(format_err!("API call failed: {}", e))
+            };
+
+            let files = listing.files.unwrap_or_else(|| Vec::new());
+
+            for file in files {
+                let name = file.name.unwrap_or_else(|| "???".to_owned());
+                println!("   {}", name);
+            }
+
+            Ok(())
+        })?;
+
+        // Our token(s) might get updated.
+        multi_storage.save_to_json()?;
+        Ok(0)
+    }
+}
+
+
 /// The command-line action to add a login to the credentials DB.
 #[derive(Debug, StructOpt)]
 pub struct DriverLoginOptions {
@@ -99,6 +143,10 @@ impl DriverLoginOptions {
 #[derive(Debug, StructOpt)]
 #[structopt(name = "driver", about = "Deal with Google Drive.")]
 pub enum DriverCli {
+    #[structopt(name = "list")]
+    /// List documents
+    List(DriverListOptions),
+
     #[structopt(name = "login")]
     /// Add a Google account to be monitored
     Login(DriverLoginOptions),
@@ -107,6 +155,7 @@ pub enum DriverCli {
 impl DriverCli {
     fn cli(self) -> Result<i32, Error> {
         match self {
+            DriverCli::List(opts) => opts.cli(),
             DriverCli::Login(opts) => opts.cli(),
         }
     }

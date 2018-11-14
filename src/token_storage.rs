@@ -1,11 +1,11 @@
 // Copyright 2018 Peter Williams <peter@newton.cx>
 // Licensed under the MIT License.
 
-//! Storage of API tokens for multiple Google accounts simultaneously.
+//! Utilities for storing and using OAuth2 API tokens.
 
 use failure::Error;
 use serde_json;
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -15,9 +15,10 @@ use yup_oauth2::{Token, TokenStorage};
 /// Get a backend for storing authentication tokens.
 ///
 /// This uses app_dirs and is specific to this application.
-pub fn get_storage() -> Result<DiskMultiTokenStorage, Error> {
+pub fn get_storage() -> Result<CentralizingDiskMultiTokenStorage, Error> {
     let p = app_dirs::get_app_dir(app_dirs::AppDataType::UserConfig, &::APP_INFO, "tokens.json")?;
-    DiskMultiTokenStorage::new(p)
+    let dms = DiskMultiTokenStorage::new(p)?;
+    Ok(CentralizingDiskMultiTokenStorage::new(dms, &get_scopes()))
 }
 
 /// Get a ScopeList representing the scopes that we need.
@@ -25,7 +26,8 @@ pub fn get_storage() -> Result<DiskMultiTokenStorage, Error> {
 /// This list is specific to this application.
 pub fn get_scopes() -> ScopeList<'static> {
     // This string is `google_drive3::Scope::Full.as_ref()`. I can't get
-    // lifetimes to work out in this context.
+    // lifetimes to work out here if I use that expression as opposed to a
+    // string literal.
     ScopeList::new(&["https://www.googleapis.com/auth/drive"])
 }
 
@@ -93,6 +95,20 @@ impl TokenStorage for SerdeMemoryStorage {
             Some(t) => Ok(Some(t.clone())),
             None => Ok(None),
         }
+    }
+}
+
+// I've neer been quite clear on when/why you sometimes (always?) need to
+// re-implement trait X for type &T when it's implemented for T ...
+impl<'a> TokenStorage for &'a mut SerdeMemoryStorage {
+    type Error = io::Error;
+
+    fn set(&mut self, hash: u64, scopes: &Vec<&str>, token: Option<Token>) -> Result<(), io::Error> {
+        (**self).set(hash, scopes, token)
+    }
+
+    fn get(&self, hash: u64, scopes: &Vec<&str>) -> Result<Option<Token>, io::Error> {
+        (**self).get(hash, scopes)
     }
 }
 
@@ -169,5 +185,96 @@ impl DiskMultiTokenStorage {
     {
         let storage = self.get_mut(key);
         Ok(storage.set(scopes.hash, &scopes.scopes, Some(token))?)
+    }
+}
+
+impl<'a> IntoIterator for &'a mut DiskMultiTokenStorage {
+    type Item = (&'a String, &'a mut SerdeMemoryStorage);
+    type IntoIter = hash_map::IterMut<'a, String, SerdeMemoryStorage>;
+
+    fn into_iter(self) -> hash_map::IterMut<'a, String, SerdeMemoryStorage> {
+        self.accounts.iter_mut()
+    }
+}
+
+
+/// A TokenStorage that maps all get/set requests to a single universal hash.
+///
+/// This is useful if you just request "full" permissions for an API, but the
+/// underlying API clients request finer-grained permissions.
+pub struct CentralizingTokenStorage<S: TokenStorage> {
+    inner: S,
+    hash: u64,
+}
+
+impl<S: TokenStorage> CentralizingTokenStorage<S> {
+    /// Create a new "centralizing" token storage.
+    fn new(inner: S, hash: u64) -> CentralizingTokenStorage<S> {
+        CentralizingTokenStorage { inner, hash }
+    }
+}
+
+impl<S: TokenStorage> TokenStorage for CentralizingTokenStorage<S> {
+    type Error = S::Error;
+
+    fn get(&self, _hash: u64, scopes: &Vec<&str>) -> Result<Option<Token>, S::Error> {
+        self.inner.get(self.hash, scopes)
+    }
+
+    fn set(&mut self, _hash: u64, scopes: &Vec<&str>, token: Option<Token>) -> Result<(), S::Error> {
+        self.inner.set(self.hash, scopes, token)
+    }
+}
+
+
+/// A hack to combine all of the above functionality.
+///
+/// This type combines tbe behavior of the DiskMultiTokenStorage with that of
+/// CentralizingTokenStorage. You could imagine implementing it with generics,
+/// but it gets really gnarly to try to name the types.
+pub struct CentralizingDiskMultiTokenStorage {
+    hash: u64,
+    inner: DiskMultiTokenStorage,
+}
+
+impl CentralizingDiskMultiTokenStorage {
+    /// Create a new "centralizing" disk-based multi-user token store.
+    pub fn new<'a>(inner: DiskMultiTokenStorage, scopes: &ScopeList<'a>) -> CentralizingDiskMultiTokenStorage {
+        CentralizingDiskMultiTokenStorage {
+            hash: scopes.hash,
+            inner
+        }
+    }
+
+    /// Perform an operation using the token store for each registered account.
+    ///
+    /// Ideally this would be implemented as an iterator, but it became too
+    /// hard/tedious for me to write down the names of the necessary types.
+    pub fn foreach<'a, F>(&'a mut self, mut f: F) -> Result<(), Error>
+        where F: FnMut((&'a String, CentralizingTokenStorage<&'a mut SerdeMemoryStorage>)) -> Result<(), Error>
+    {
+        for (k, v) in &mut self.inner {
+            f((k, CentralizingTokenStorage::new(v, self.hash)))?;
+        }
+
+        Ok(())
+    }
+
+    /// Insert a new token into the storage.
+    ///
+    /// This delegates to the underlying DiskMultiTokenStorage, without doing
+    /// any "centralization".
+    pub fn add_token<'a, S: AsRef<str>>(
+        &mut self, scopes: &ScopeList<'a>, key: S, token: Token
+    ) -> Result<(), Error>
+    {
+        self.inner.add_token(scopes, key, token)
+    }
+
+    /// Write out the current stored token information to the backing file.
+    ///
+    /// This delegates to the underlying DiskMultiTokenStorage.
+    pub fn save_to_json(&self) -> Result<(), io::Error> {
+        self.inner.save_to_json()
     }
 }
