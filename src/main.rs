@@ -55,6 +55,160 @@ fn get_http_client() -> Result<hyper::Client, Error> {
 }
 
 
+/// Helper class for paging `files.list` results.
+///
+/// Well, this sure is a fun type to write. For some reason, we need to
+/// include a PhantomData including the `'a` lifetime to prevent the compiler
+/// from complaining about it being unused, even though that lifetime is
+/// referenced by the type parameter F.
+struct FileListing<'a, 'b, C, A, F>
+    where 'b: 'a,
+          F: FnMut(google_drive3::FileListCall<'a, C, A>) -> google_drive3::FileListCall<'a, C, A>,
+          C: 'b + std::borrow::BorrowMut<hyper::Client>,
+          A: 'b + yup_oauth2::GetToken
+{
+    hub: &'b google_drive3::Drive<C, A>,
+    customizer: F,
+    cur_page: Option<std::vec::IntoIter<google_drive3::File>>,
+    next_page_token: Option<String>,
+    finished: bool,
+    final_page: bool,
+    phantoma: std::marker::PhantomData<&'a A>,
+}
+
+impl<'a, 'b, C, A, F> FileListing<'a, 'b, C, A, F>
+    where 'b: 'a,
+          F: FnMut(google_drive3::FileListCall<'a, C, A>) -> google_drive3::FileListCall<'a, C, A>,
+          C: 'b + std::borrow::BorrowMut<hyper::Client>,
+          A: 'b + yup_oauth2::GetToken
+{
+    /// Create a new iterator over files in a Drive.
+    ///
+    /// The function *f* can customize the FileListCall instances to tune the
+    /// query that will be sent to Google's servers. The results for each
+    /// query may need to be paged, so the function may be called multiple
+    /// times.
+    pub fn new(hub: &'b google_drive3::Drive<C, A>, f: F) -> FileListing<'a, 'b, C, A, F> {
+        FileListing {
+            hub,
+            customizer: f,
+            cur_page: None,
+            next_page_token: None,
+            finished: false,
+            final_page: false,
+            phantoma: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<'a, 'b, C, A, F> Iterator for FileListing<'a, 'b, C, A, F>
+    where 'b: 'a,
+          F: FnMut(google_drive3::FileListCall<'a, C, A>) -> google_drive3::FileListCall<'a, C, A>,
+          C: 'b + std::borrow::BorrowMut<hyper::Client>,
+          A: 'b + yup_oauth2::GetToken
+{
+    type Item = Result<google_drive3::File, Error>;
+
+    fn next(&mut self) -> Option<Result<google_drive3::File, Error>> {
+        // If we set this flag, we either errored out or are totally done.
+
+        if self.finished {
+            return None;
+        }
+
+        // Are we currently in the midst of a page with items left? If so,
+        // just return the next one.
+
+        if let Some(iter) = self.cur_page.as_mut() {
+            if let Some(file) = iter.next() {
+                return Some(Ok(file));
+            }
+        }
+
+        // Guess not. Was that the last page? If so, hooray -- we successfully
+        // iterated over every document.
+
+        if self.final_page {
+            self.finished = true;
+            return None;
+        }
+
+        // Nope. Try issuing a request for the next page of results.
+
+        let call = self.hub.files().list();
+        let call = (self.customizer)(call);
+
+        let call = if let Some(page_token) = self.next_page_token.take() {
+            call.page_token(&page_token)
+        } else {
+            call
+        };
+
+        let (_resp, listing) = match call.doit() {
+            Ok(t) => t,
+            Err(e) => {
+                self.finished = true;
+                return Some(Err(format_err!("API call failed: {}", e)));
+            }
+        };
+
+        // The listing contains (1) maybe a token that we can use to get the
+        // next page of results and (2) a vector of information about the files
+        // in this page.
+        //
+        // XXX: ignoring `incomplete_search` flag
+
+        if let Some(page_token) = listing.next_page_token {
+            self.next_page_token = Some(page_token);
+        } else {
+            // If there's no next page, this is the last page.
+            self.final_page = true;
+        }
+
+        let mut files_iter = match listing.files {
+            Some(f) => f.into_iter(),
+            None => {
+                self.finished = true;
+                return Some(Err(format_err!("API call failed: no 'files' returned")));
+            }
+        };
+
+        // OK, we finally have a iterator over a vector of files.
+
+        let the_file = match files_iter.next() {
+            Some(f) => f,
+            None => {
+                // This page was empty. This can of course happen if the user
+                // has no documents, and it's OK if this was the final page.
+                // If this wasn't the final page, we're in trouble because we
+                // really ought to return Some(page). We could in principle
+                // loop back and reissue the API call, and maybe the next page
+                // *will* have items ... but that's a pain. So if this case
+                // happens, error out. Either way, though, we're done.
+
+                self.finished = true;
+
+                return if self.final_page {
+                    None
+                } else {
+                    Some(Err(format_err!("API call failed: empty page in midst of query")))
+                };
+            }
+        };
+
+        self.cur_page = Some(files_iter);
+        Some(Ok(the_file))
+    }
+}
+
+impl<'a, 'b, C, A, F> std::iter::FusedIterator for FileListing<'a, 'b, C, A, F>
+    where 'b: 'a,
+          F: FnMut(google_drive3::FileListCall<'a, C, A>) -> google_drive3::FileListCall<'a, C, A>,
+          C: 'b + std::borrow::BorrowMut<hyper::Client>,
+          A: 'b + yup_oauth2::GetToken
+{}
+
+
 /// Temp? List documents.
 #[derive(Debug, StructOpt)]
 pub struct DriverListOptions {}
@@ -77,14 +231,8 @@ impl DriverListOptions {
 
             println!("{}:", email);
 
-            let (_resp, listing) = match hub.files().list().doit() {
-                Ok(x) => x,
-                Err(e) => return Err(format_err!("API call failed: {}", e))
-            };
-
-            let files = listing.files.unwrap_or_else(|| Vec::new());
-
-            for file in files {
+            for maybe_file in FileListing::new(&hub, |call| call) {
+                let file = maybe_file?;
                 let name = file.name.unwrap_or_else(|| "???".to_owned());
                 println!("   {}", name);
             }
