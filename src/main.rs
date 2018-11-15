@@ -231,10 +231,11 @@ impl DriverListOptions {
 
             println!("{}:", email);
 
-            for maybe_file in FileListing::new(&hub, |call| call) {
+            for maybe_file in FileListing::new(&hub, |call| call.spaces("drive")) {
                 let file = maybe_file?;
-                let name = file.name.unwrap_or_else(|| "???".to_owned());
-                println!("   {}", name);
+                let name = file.name.as_ref().map_or("???", |s| s);
+                let id = file.id.as_ref().map_or("???", |s| s);
+                println!("   {}: {}", name, id);
             }
 
             Ok(())
