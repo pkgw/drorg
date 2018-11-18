@@ -14,10 +14,12 @@ extern crate serde;
 extern crate serde_json;
 extern crate structopt;
 extern crate tempfile;
+extern crate url;
 extern crate yup_oauth2;
 
 use diesel::prelude::*;
 use failure::Error;
+use std::ffi::OsStr;
 use std::fs;
 use std::process;
 use structopt::StructOpt;
@@ -56,6 +58,26 @@ fn get_http_client() -> Result<hyper::Client, Error> {
             hyper_native_tls::NativeTlsClient::new()?
         )
     ))
+}
+
+
+/// Open a URL in a browser.
+///
+/// HACK: I'm sure there's a nice cross-platform crate to do this, but
+/// I customize it to use my Google-specific Firefox profile.
+fn open_url<S: AsRef<OsStr>>(url: S) -> Result<(), Error> {
+    use std::process::Command;
+
+    let status = Command::new("firefox")
+        .args(&["-P", "google", "--new-window"])
+        .arg(url)
+        .status()?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format_err!("browser command exited with an error code"))
+    }
 }
 
 /// Helper class for paging `files.list` results.
@@ -298,6 +320,55 @@ impl DriverLoginOptions {
 }
 
 
+/// Open a document.
+#[derive(Debug, StructOpt)]
+pub struct DriverOpenOptions {
+    #[structopt(help = "A piece of the document name")]
+    stem: String,
+}
+
+impl DriverOpenOptions {
+    fn cli(self) -> Result<i32, Error> {
+        // TODO: synchronize the database if needed, or something
+        let conn = database::get_db_connection()?;
+        let pattern = format!("%{}%", self.stem);
+        
+        use schema::docs::dsl::*;
+
+        let results = docs.filter(name.like(&pattern))
+            .load::<database::Doc>(&conn)?;
+
+        let id_to_open = match results.len() {
+            0 => {
+                println!("No known document names matched the pattern \"{}\"", self.stem);
+                return Ok(1);
+            },
+
+            1 => &results[0].id,
+
+            _n => {
+                println!("Multiple documents matched the pattern \"{}\":", self.stem);
+                println!("");
+                for r in results {
+                    println!("   {}", r.name);
+                }
+                println!("");
+                println!("Please use a more specific filter.");
+                return Ok(1);
+            }
+        };
+
+        let mut url = hyper::Url::parse("https://drive.google.com/open").unwrap();
+        use url::percent_encoding::{utf8_percent_encode, QUERY_ENCODE_SET};
+        let q = utf8_percent_encode(id_to_open, QUERY_ENCODE_SET).to_string();
+        url.set_query(Some(&format!("id={}", q)));
+
+        open_url(url.as_str())?;
+        Ok(0)
+    }
+}
+
+
 /// Temp? Fill the database with the current set of remote documents.
 #[derive(Debug, StructOpt)]
 pub struct DriverSyncOptions {}
@@ -306,7 +377,7 @@ impl DriverSyncOptions {
     fn cli(self) -> Result<i32, Error> {
         let secret = get_app_secret()?;
         let mut multi_storage = token_storage::get_storage()?;
-        let mut conn = database::get_db_connection()?;
+        let conn = database::get_db_connection()?;
 
         multi_storage.foreach(|(email, tokens)| {
             let auth = Authenticator::new(
@@ -363,6 +434,10 @@ pub enum DriverCli {
     /// Add a Google account to be monitored
     Login(DriverLoginOptions),
 
+    #[structopt(name = "open")]
+    /// Open a document in a web browser
+    Open(DriverOpenOptions),
+
     #[structopt(name = "sync")]
     /// Synchronize the local database with Google Drve
     Sync(DriverSyncOptions),
@@ -373,6 +448,7 @@ impl DriverCli {
         match self {
             DriverCli::List(opts) => opts.cli(),
             DriverCli::Login(opts) => opts.cli(),
+            DriverCli::Open(opts) => opts.cli(),
             DriverCli::Sync(opts) => opts.cli(),
         }
     }

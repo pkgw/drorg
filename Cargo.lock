@@ -166,6 +166,7 @@ dependencies = [
  "serde_json 1.0.32 (registry+https://github.com/rust-lang/crates.io-index)",
  "structopt 0.2.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "tempfile 3.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "url 1.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "yup-oauth2 1.0.9 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
