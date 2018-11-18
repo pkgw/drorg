@@ -13,6 +13,7 @@ license = "MIT"
 
 [dependencies]
 app_dirs = "^1.2"
+diesel = { version = "^1.3", features = ["sqlite"] }
 failure = "0.1"
 google-drive3 = "1.0"
 hyper = "^0.10"  # intentionally old version of Hyper

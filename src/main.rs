@@ -4,6 +4,7 @@
 //! The main CLI driver logic.
 
 extern crate app_dirs;
+#[macro_use] extern crate diesel;
 #[macro_use] extern crate failure;
 extern crate google_drive3;
 extern crate hyper;
@@ -15,6 +16,7 @@ extern crate structopt;
 extern crate tempfile;
 extern crate yup_oauth2;
 
+use diesel::prelude::*;
 use failure::Error;
 use std::fs;
 use std::process;
@@ -24,6 +26,8 @@ use yup_oauth2::{
     DefaultAuthenticatorDelegate, FlowType, GetToken, NullStorage,
 };
 
+mod database;
+mod schema;
 mod token_storage;
 
 
@@ -53,7 +57,6 @@ fn get_http_client() -> Result<hyper::Client, Error> {
         )
     ))
 }
-
 
 /// Helper class for paging `files.list` results.
 ///
@@ -249,6 +252,12 @@ impl DriverListOptions {
 
 
 /// The command-line action to add a login to the credentials DB.
+///
+/// Note that "email" doesn't really have to be an email address -- it can be
+/// any random string; the user chooses which account to login-to
+/// interactively during the login process. But I think it makes sense from a
+/// UI perspective to just call it "email" and let the user figure out for
+/// themselves that they can give it some other value if they feel like it.
 #[derive(Debug, StructOpt)]
 pub struct DriverLoginOptions {
     #[structopt(help = "An email address associated with the account")]
@@ -289,6 +298,60 @@ impl DriverLoginOptions {
 }
 
 
+/// Temp? Fill the database with the current set of remote documents.
+#[derive(Debug, StructOpt)]
+pub struct DriverSyncOptions {}
+
+impl DriverSyncOptions {
+    fn cli(self) -> Result<i32, Error> {
+        let secret = get_app_secret()?;
+        let mut multi_storage = token_storage::get_storage()?;
+        let mut conn = database::get_db_connection()?;
+
+        multi_storage.foreach(|(email, tokens)| {
+            let auth = Authenticator::new(
+                &secret,
+                DefaultAuthenticatorDelegate,
+                get_http_client()?,
+                tokens,
+                None
+            );
+
+            let hub = google_drive3::Drive::new(get_http_client()?, auth);
+
+            // TODO we need to delete old records and stuff!
+
+            for maybe_file in FileListing::new(&hub, |call| call.spaces("drive")) {
+                let file = maybe_file?;
+                let name = file.name.as_ref().map_or("???", |s| s);
+                let id = match file.id.as_ref() {
+                    Some(s) => s,
+                    None => {
+                        eprintln!("got a document without an ID in account {}; ignoring", email);
+                        continue;
+                    }
+                };
+
+                let new_doc = database::NewDoc {
+                    id: id,
+                    name: name,
+                };
+
+                diesel::insert_or_ignore_into(schema::docs::table)
+                    .values(&new_doc)
+                    .execute(&conn)?;
+            }
+
+            Ok(())
+        })?;
+
+        // Our token(s) might get updated.
+        multi_storage.save_to_json()?;
+        Ok(0)
+    }
+}
+
+
 #[derive(Debug, StructOpt)]
 #[structopt(name = "driver", about = "Deal with Google Drive.")]
 pub enum DriverCli {
@@ -299,6 +362,10 @@ pub enum DriverCli {
     #[structopt(name = "login")]
     /// Add a Google account to be monitored
     Login(DriverLoginOptions),
+
+    #[structopt(name = "sync")]
+    /// Synchronize the local database with Google Drve
+    Sync(DriverSyncOptions),
 }
 
 impl DriverCli {
@@ -306,6 +373,7 @@ impl DriverCli {
         match self {
             DriverCli::List(opts) => opts.cli(),
             DriverCli::Login(opts) => opts.cli(),
+            DriverCli::Sync(opts) => opts.cli(),
         }
     }
 }
