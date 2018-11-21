@@ -5,72 +5,65 @@
 
 use failure::Error;
 use serde_json;
-use std::collections::{HashMap, hash_map};
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use yup_oauth2::ApplicationSecret;
 
 use gdrive::Drive;
 use token_storage::SerdeMemoryStorage;
 
 
-/// Get the account data structure.
-pub fn get_accounts() -> Result<Accounts, Error> {
-    let p = app_dirs::get_app_dir(app_dirs::AppDataType::UserData, &::APP_INFO, "accounts.json")?;
-    Accounts::new(p)
-}
-
-
-/// Information about one-logged in Google Drive account.
+/// Information about one logged-in Google Drive account.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct Account {
+pub struct AccountData {
     /// The OAuth2 tokens we use when issuing API calls for this account.
     ///
     /// This collection of tokens can be empty! In which case, your API calls
     /// are not going to be very successful.
     pub tokens: SerdeMemoryStorage,
+
+    /// A token used to ask the API about recent changes.
+    pub change_page_token: Option<String>,
 }
 
 
-/// A colletion of account information, serializable to and from JSON.
+/// A reference to a logged-in account.
 #[derive(Debug)]
-pub struct Accounts {
-    /// The path to the backing file for this collection.
+pub struct Account {
+    /// The path to the backing file for this account.
     path: PathBuf,
 
-    /// The table of accounts, keyed by an associated email address.
-    ///
-    /// (The way things work, the key can actually be anything, but let's not
-    /// introduce confusion.)
-    accounts: HashMap<String, Account>,
+    /// The persistent data.
+    data: AccountData,
 }
 
-impl Accounts {
-    /// Read the account information.
+impl Account {
+    /// Read account information.
     ///
-    /// If the specified file does not exist, the error is swallowed and an
-    /// empty data structure is returned.
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<Accounts, Error> {
-        let mut accounts = Accounts {
-            path: path.as_ref().to_owned(),
-            accounts: HashMap::new(),
+    /// If the backing JSON data file does not exist, the error is swallowed
+    /// and an empty data structure is returned.
+    ///
+    /// Accounts should be keyed by an associated email address, although we
+    /// can't technically enforce that the user specifies one as the key,
+    pub fn load<S: AsRef<str>>(email: S) -> Result<Account, Error> {
+        let mut path = app_dirs::get_app_dir(app_dirs::AppDataType::UserData, &::APP_INFO, "accounts")?;
+        path.push(email.as_ref());
+        path.set_extension("json");
+
+        let data = match fs::File::open(&path) {
+            Ok(f) => serde_json::from_reader(f)?,
+
+            Err(e) => {
+                if e.kind() != io::ErrorKind::NotFound {
+                    return Err(e.into());
+                }
+
+                AccountData::default()
+            }
         };
 
-        if let Err(e) = accounts.load_from_json() {
-            if e.kind() != io::ErrorKind::NotFound {
-                return Err(e.into());
-            }
-        }
-
-        Ok(accounts)
-    }
-
-    /// Fill in `self.accounts` with information gathered from the JSON-format
-    /// file `self.path`.
-    fn load_from_json(&mut self) -> Result<(), io::Error> {
-        let f = fs::File::open(&self.path)?;
-        self.accounts = serde_json::from_reader(f)?;
-        Ok(())
+        Ok(Account { path, data })
     }
 
     /// Write the account information to the backing file.
@@ -82,80 +75,92 @@ impl Accounts {
         destdir.pop();
 
         let temp = tempfile::Builder::new()
-            .prefix("accounts")
+            .prefix("account")
             .suffix(".json")
             .tempfile_in(destdir)?;
 
-        serde_json::to_writer(&temp, &self.accounts)?;
+        serde_json::to_writer(&temp, &self.data)?;
 
         temp.persist(&self.path)?;
         Ok(())
     }
 
-    /// Get a mutable reference to an account information structure.
-    ///
-    /// If the account's key was not present, a new empty structure is
-    /// created. The structure will have an empty OAuth2 token storage, so it
-    /// won't be possible to make any API calls.
-    pub fn get_mut<S: AsRef<str>>(&mut self, key: S) -> &mut Account {
-        // I don't like to always clone the key, but I can never figure out
-        // how to avoid it without borrowck problems.
-        self.accounts.entry(key.as_ref().to_owned()).or_insert(Account::default())
-    }
-
     /// Ask the user to authorize our app to use this account, interactively.
-    ///
-    /// The argument `key` is only used to specify the key under which the login
-    /// information is stored in the token JSON file.
-    pub fn authorize_interactively<S: AsRef<str>>(&mut self, key: S) -> Result<(), Error> {
-        {
-            let account = self.get_mut(key);
-            ::gdrive::authorize_interactively(&mut account.tokens)?;
-        }
-
+    pub fn authorize_interactively(&mut self, secret: &ApplicationSecret) -> Result<(), Error> {
+        ::gdrive::authorize_interactively(secret, &mut self.data.tokens)?;
         self.save_to_json()
     }
 
-    /// Perform a web-API operation for each logged-in account.
+    /// Perform a web-API operation using this account.
     ///
-    /// The callback has the signature `FnMut(email: &str, hub: &Drive) ->
-    /// Result<(), Error>`. In the definition here we get to use the elusive
-    /// `where for` syntax!
-    ///
-    /// TBD: would this be better as an iterator? I had trouble implementing it
-    /// that way, and there's also the matter that we want to finish up by saving
-    /// the tokens, which could fail.
-    pub fn foreach_hub<F>(&mut self, mut callback: F) -> Result<(), Error>
-        where for<'a> F: FnMut(&'a str, &'a Drive<'a>) -> Result<(), Error>
+    /// The callback has the signature `FnMut(hub: &Drive) -> Result<T,
+    /// Error>`. In the definition here we get to use the elusive `where for`
+    /// syntax!
+    pub fn with_hub<T, F>(&mut self, secret: &ApplicationSecret, mut callback: F) -> Result<T, Error>
+        where for<'a> F: FnMut(&'a Drive<'a>) -> Result<T, Error>
     {
         use yup_oauth2::{Authenticator, DefaultAuthenticatorDelegate};
-        use gdrive::{get_app_secret, get_http_client};
+        use gdrive::get_http_client;
 
-        let secret = get_app_secret()?;
-
-        for (email, account) in &mut self.accounts {
+        let result = {
             let auth = Authenticator::new(
-                &secret,
+                secret,
                 DefaultAuthenticatorDelegate,
                 get_http_client()?,
-                &mut account.tokens,
+                &mut self.data.tokens,
                 None
             );
-
             let hub = google_drive3::Drive::new(get_http_client()?, auth);
-            callback(&email, &hub)?;
-        }
+            callback(&hub)?
+        };
 
         // Our token(s) might have gotten updated.
-        self.save_to_json()
+        self.save_to_json()?;
+
+        Ok(result)
     }
+
 }
 
-impl<'a> IntoIterator for &'a mut Accounts {
-    type Item = (&'a String, &'a mut Account);
-    type IntoIter = hash_map::IterMut<'a, String, Account>;
 
-    fn into_iter(self) -> hash_map::IterMut<'a, String, Account> {
-        self.accounts.iter_mut()
-    }
+/// Get information about all of the accounts.
+pub fn get_accounts() -> Result<impl Iterator<Item = Result<(String, Account), Error>>, Error> {
+    let path = app_dirs::get_app_dir(app_dirs::AppDataType::UserData, &::APP_INFO, "accounts")?;
+
+    // Surely there's a better way to implement this ...
+    Ok(fs::read_dir(path)?.filter_map(|maybe_entry| {
+        match maybe_entry {
+            Err(e) => Some(Err(e.into())),
+
+            Ok(entry) => {
+                let mut name: PathBuf = entry.file_name().into();
+
+                if let Some(ext) = name.extension() {
+                    if let Some(ext_str) = ext.to_str() {
+                        if ext_str == "json" {
+                        } else {
+                            return None;
+                        }
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
+
+                name.set_extension("");
+
+                if let Some(email) = name.to_str() {
+                    let email = email.to_owned();
+
+                    match Account::load(&email) {
+                        Ok(acct) => Some(Ok((email, acct))),
+                        Err(e) => Some(Err(e.into())),
+                    }
+                } else {
+                    None
+                }
+            },
+        }
+    }))
 }

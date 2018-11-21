@@ -97,8 +97,9 @@ impl DriverLoginOptions {
     /// simultaneously. Therefore we set up the authenticator flow with a null
     /// storage, and then add the resulting token to the disk storage.
     fn cli(self) -> Result<i32, Error> {
-        let mut accounts = accounts::get_accounts()?;
-        accounts.authorize_interactively(&self.email)?;
+        let secret = gdrive::get_app_secret()?;
+        let mut account = accounts::Account::load(&self.email)?;
+        account.authorize_interactively(&secret)?;
         Ok(0)
     }
 }
@@ -159,34 +160,38 @@ pub struct DriverSyncOptions {}
 
 impl DriverSyncOptions {
     fn cli(self) -> Result<i32, Error> {
+        let secret = gdrive::get_app_secret()?;
         let conn = database::get_db_connection()?;
-        let mut accounts = accounts::get_accounts()?;
 
-        accounts.foreach_hub(|email, hub| {
-            // TODO we need to delete old records and stuff!
-            for maybe_file in gdrive::list_files(&hub, |call| call.spaces("drive")) {
-                let file = maybe_file?;
-                let name = file.name.as_ref().map_or("???", |s| s);
-                let id = match file.id.as_ref() {
-                    Some(s) => s,
-                    None => {
-                        eprintln!("got a document without an ID in account {}; ignoring", email);
-                        continue;
-                    }
-                };
+        for maybe_info in accounts::get_accounts()? {
+            let (email, mut account) = maybe_info?;
 
-                let new_doc = database::NewDoc {
-                    id: id,
-                    name: name,
-                };
+            account.with_hub(&secret, |hub| {
+                // TODO we need to delete old records and stuff!
+                for maybe_file in gdrive::list_files(&hub, |call| call.spaces("drive")) {
+                    let file = maybe_file?;
+                    let name = file.name.as_ref().map_or("???", |s| s);
+                    let id = match file.id.as_ref() {
+                        Some(s) => s,
+                        None => {
+                            eprintln!("got a document without an ID in account {}; ignoring", email);
+                            continue;
+                        }
+                    };
 
-                diesel::insert_or_ignore_into(schema::docs::table)
-                    .values(&new_doc)
-                    .execute(&conn)?;
-            }
+                    let new_doc = database::NewDoc {
+                        id: id,
+                        name: name,
+                    };
 
-            Ok(())
-        })?;
+                    diesel::insert_or_ignore_into(schema::docs::table)
+                        .values(&new_doc)
+                        .execute(&conn)?;
+                }
+
+                Ok(())
+            })?;
+        }
 
         Ok(0)
     }

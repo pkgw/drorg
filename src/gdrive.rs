@@ -85,11 +85,11 @@ impl_call_builder_ext!(google_drive3::FileListCall<'a, C, A>);
 /// Note that if the user has multiple accounts, they'll be able to choose
 /// which one to authorize the app for. We can't have any control over which
 /// one it is.
-pub fn authorize_interactively<T: TokenStorage>(storage: &mut T) -> Result<(), Error> {
+pub fn authorize_interactively<T: TokenStorage>(secret: &ApplicationSecret, storage: &mut T) -> Result<(), Error> {
     let scopes = get_scopes();
 
     let mut auth = YupAuthenticator::new(
-        &get_app_secret()?,
+        secret,
         DefaultAuthenticatorDelegate,
         get_http_client()?,
         NullStorage::default(),
