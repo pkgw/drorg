@@ -60,20 +60,14 @@ pub struct DriverListOptions {}
 
 impl DriverListOptions {
     fn cli(self) -> Result<i32, Error> {
-        // TODO: use the DB, not API
+        // TODO: sync with Google, or something
+        let conn = database::get_db_connection()?;
 
-        gdrive::foreach_account(|email, hub| {
-            println!("{}:", email);
+        use schema::docs::dsl::*;
 
-            for maybe_file in gdrive::list_files(hub, |call| call.spaces("drive")) {
-                let file = maybe_file?;
-                let name = file.name.as_ref().map_or("???", |s| s);
-                let id = file.id.as_ref().map_or("???", |s| s);
-                println!("   {}: {}", name, id);
-            }
-
-            Ok(())
-        })?;
+        for doc in docs.load::<database::Doc>(&conn)? {
+            println!("   {} ({})", doc.name, doc.id);
+        }
 
         Ok(0)
     }
