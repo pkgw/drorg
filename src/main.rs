@@ -23,6 +23,7 @@ use std::ffi::OsStr;
 use std::process;
 use structopt::StructOpt;
 
+mod accounts;
 mod database;
 mod gdrive;
 mod schema;
@@ -96,7 +97,8 @@ impl DriverLoginOptions {
     /// simultaneously. Therefore we set up the authenticator flow with a null
     /// storage, and then add the resulting token to the disk storage.
     fn cli(self) -> Result<i32, Error> {
-        gdrive::interactive_authorization(&self.email)?;
+        let mut accounts = accounts::get_accounts()?;
+        accounts.authorize_interactively(&self.email)?;
         Ok(0)
     }
 }
@@ -158,8 +160,9 @@ pub struct DriverSyncOptions {}
 impl DriverSyncOptions {
     fn cli(self) -> Result<i32, Error> {
         let conn = database::get_db_connection()?;
+        let mut accounts = accounts::get_accounts()?;
 
-        gdrive::foreach_account(|email, hub| {
+        accounts.foreach_hub(|email, hub| {
             // TODO we need to delete old records and stuff!
             for maybe_file in gdrive::list_files(&hub, |call| call.spaces("drive")) {
                 let file = maybe_file?;

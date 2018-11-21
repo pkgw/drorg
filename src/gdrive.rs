@@ -9,10 +9,10 @@ use std::fs;
 use yup_oauth2::{
     Authenticator as YupAuthenticator, ApplicationSecret,
     ConsoleApplicationSecret, DefaultAuthenticatorDelegate,
-    FlowType, GetToken, NullStorage,
+    FlowType, GetToken, NullStorage, TokenStorage,
 };
 
-use token_storage::{SCOPE, SerdeMemoryStorage, get_scopes, get_storage};
+use token_storage::{SCOPE, SerdeMemoryStorage, get_scopes};
 
 /// The app-specific token storage type.
 pub type TokenStore<'a> = &'a mut SerdeMemoryStorage;
@@ -32,7 +32,7 @@ pub type Drive<'a> = google_drive3::Drive<Client, Authenticator<'a>>;
 /// be cool but not something to spend time on right now.
 ///
 /// On Linux the desired filepath is `~/.config/goodriver/client_id.json`.
-fn get_app_secret() -> Result<ApplicationSecret, Error> {
+pub fn get_app_secret() -> Result<ApplicationSecret, Error> {
     let p = app_dirs::get_app_dir(app_dirs::AppDataType::UserConfig, &::APP_INFO, "client_id.json")?;
     let f = fs::File::open(p)?;
     let cfg: ConsoleApplicationSecret = serde_json::from_reader(f)?;
@@ -41,7 +41,7 @@ fn get_app_secret() -> Result<ApplicationSecret, Error> {
 
 
 /// Get an HTTP client with all the bells and whistles we need.
-fn get_http_client() -> Result<hyper::Client, Error> {
+pub fn get_http_client() -> Result<hyper::Client, Error> {
     Ok(hyper::Client::with_connector(
         hyper::net::HttpsConnector::new(
             hyper_native_tls::NativeTlsClient::new()?
@@ -82,11 +82,11 @@ impl_call_builder_ext!(google_drive3::FileListCall<'a, C, A>);
 
 /// Ask the user to authorize our app to use an account, interactively.
 ///
-/// The argument `key` is only used to specify the key under which the login
-/// information is stored in the token JSON file.
-pub fn interactive_authorization(key: &str) -> Result<(), Error> {
+/// Note that if the user has multiple accounts, they'll be able to choose
+/// which one to authorize the app for. We can't have any control over which
+/// one it is.
+pub fn authorize_interactively<T: TokenStorage>(storage: &mut T) -> Result<(), Error> {
     let scopes = get_scopes();
-    let mut multi_storage = get_storage()?;
 
     let mut auth = YupAuthenticator::new(
         &get_app_secret()?,
@@ -96,49 +96,16 @@ pub fn interactive_authorization(key: &str) -> Result<(), Error> {
         Some(FlowType::InstalledInteractive)
     );
 
-    let token = match auth.token(scopes.as_vec()) {
-        Ok(t) => t,
+    // Can't figure out a nice blanket way to translate std::error::Error into
+    // failure::Error.
 
-        // Can't figure out how to adopt `e` into a failure::Error here:
-        Err(e) => return Err(format_err!("OAuth2 login failed: {}", e))
-    };
+    let token = auth.token(scopes.as_vec()).map_err(
+        |e| format_err!("OAuth2 login failed: {}", e)
+    )?;
 
-    multi_storage.add_token(&scopes, key, token)?;
-    multi_storage.save_to_json()?;
-    Ok(())
-}
-
-
-/// Perform a web-API operation for each logged-in account.
-///
-/// The callback has the signature `FnMut(email: &str, hub: &Drive) ->
-/// Result<(), Error>`. In the definition here we get to use the elusive
-/// `where for` syntax!
-///
-/// TODO: This can't be an iterator because I couldn't figure out how to write
-/// `CentralizingDiskMultiTokenStorage::foreach` as an iterator.
-pub fn foreach_account<F>(mut callback: F) -> Result<(), Error>
-    where for<'a> F: FnMut(&'a str, &'a Drive<'a>) -> Result<(), Error>
-{
-    let secret = get_app_secret()?;
-    let mut multi_storage = get_storage()?;
-
-    for (email, tokens) in &mut multi_storage {
-        let auth = Authenticator::new(
-            &secret,
-            DefaultAuthenticatorDelegate,
-            get_http_client()?,
-            tokens,
-            None
-        );
-
-        let hub = google_drive3::Drive::new(get_http_client()?, auth);
-        callback(&email, &hub)?;
-    }
-
-    // Our token(s) might have gotten updated.
-    multi_storage.save_to_json()?;
-    Ok(())
+    storage.set(scopes.hash, &scopes.scopes, Some(token)).map_err(
+        |e| format_err!("couldn't save auth token: {}", e)
+    )
 }
 
 
