@@ -12,10 +12,10 @@ use yup_oauth2::{
     FlowType, GetToken, NullStorage,
 };
 
-use token_storage::{CentralizingTokenStorage, SerdeMemoryStorage, get_scopes, get_storage};
+use token_storage::{SCOPE, SerdeMemoryStorage, get_scopes, get_storage};
 
 /// The app-specific token storage type.
-pub type TokenStore<'a> = CentralizingTokenStorage<&'a mut SerdeMemoryStorage>;
+pub type TokenStore<'a> = &'a mut SerdeMemoryStorage;
 
 /// The app-specific authenticator type.
 pub type Authenticator<'a> = YupAuthenticator<DefaultAuthenticatorDelegate,
@@ -48,6 +48,36 @@ fn get_http_client() -> Result<hyper::Client, Error> {
         )
     ))
 }
+
+
+/// Helper trait for generic operations on API calls
+///
+/// Every API call implements these features, but not as a trait, so we can't
+/// access them generically without adding a helper trait.
+pub trait CallBuilderExt {
+    /// Set the authorization scope to be used for this API call.
+    ///
+    /// This just wraps the `add_scope` call implemented for every CallBuilder
+    /// type. Note that the auto-generated documentation for those functions
+    /// is not accurate.
+    fn set_scope<S: AsRef<str>>(self, scope: S) -> Self;
+}
+
+macro_rules! impl_call_builder_ext {
+    ($type:ty) => {
+        impl<'a, C, A> CallBuilderExt for $type
+            where C: ::std::borrow::BorrowMut<hyper::Client>, A: GetToken
+        {
+            fn set_scope<S: AsRef<str>>(self, scope: S) -> Self {
+                // I don't know why the compiler needs me to spell out the type here ...
+                self.add_scope::<Option<S>, S>(Some(scope))
+            }
+        }
+    }
+}
+
+impl_call_builder_ext!(google_drive3::ChangeGetStartPageTokenCall<'a, C, A>);
+impl_call_builder_ext!(google_drive3::FileListCall<'a, C, A>);
 
 
 /// Ask the user to authorize our app to use an account, interactively.
@@ -93,7 +123,7 @@ pub fn foreach_account<F>(mut callback: F) -> Result<(), Error>
     let secret = get_app_secret()?;
     let mut multi_storage = get_storage()?;
 
-    multi_storage.foreach(|(email, tokens)| {
+    for (email, tokens) in &mut multi_storage {
         let auth = Authenticator::new(
             &secret,
             DefaultAuthenticatorDelegate,
@@ -103,8 +133,8 @@ pub fn foreach_account<F>(mut callback: F) -> Result<(), Error>
         );
 
         let hub = google_drive3::Drive::new(get_http_client()?, auth);
-        callback(&email, &hub)
-    })?;
+        callback(&email, &hub)?;
+    }
 
     // Our token(s) might have gotten updated.
     multi_storage.save_to_json()?;
@@ -206,10 +236,13 @@ impl<'a, 'b, C, A, F> Iterator for FileListing<'a, 'b, C, A, F>
             return None;
         }
 
-        // Nope. Try issuing a request for the next page of results.
+        // Nope. Try issuing a request for the next page of results. Here we
+        // force the call to use our single master scope, which we probably
+        // shouldn't do if we want to turn this into a reusabe library.
 
         let call = self.hub.files().list();
         let call = (self.customizer)(call);
+        let call = call.set_scope(SCOPE);
 
         let call = if let Some(page_token) = self.next_page_token.take() {
             call.page_token(&page_token)
