@@ -16,7 +16,7 @@ use yup_oauth2::{Token, TokenStorage};
 ///
 /// This uses app_dirs and is specific to this application.
 pub fn get_storage() -> Result<CentralizingDiskMultiTokenStorage, Error> {
-    let p = app_dirs::get_app_dir(app_dirs::AppDataType::UserConfig, &::APP_INFO, "tokens.json")?;
+    let p = app_dirs::get_app_dir(app_dirs::AppDataType::UserData, &::APP_INFO, "tokens.json")?;
     let dms = DiskMultiTokenStorage::new(p)?;
     Ok(CentralizingDiskMultiTokenStorage::new(dms, &get_scopes()))
 }
