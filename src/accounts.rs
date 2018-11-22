@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use yup_oauth2::ApplicationSecret;
 
 use errors::{AdaptExternalResult, Result};
-use gdrive::{CallBuilderExt, Drive, People};
+use google_apis::{CallBuilderExt, Drive, People};
 use token_storage::SerdeMemoryStorage;
 
 
@@ -91,7 +91,7 @@ impl Account {
     /// The authorization may be done right as the Account is created, when it
     /// does not yet know what filename it should save itself under.
     pub fn authorize_interactively(&mut self, secret: &ApplicationSecret) -> Result<()> {
-        ::gdrive::authorize_interactively(secret, &mut self.data.tokens)
+        ::google_apis::authorize_interactively(secret, &mut self.data.tokens)
     }
 
     /// Perform a GDrive web-API operation using this account.
@@ -102,7 +102,7 @@ impl Account {
         where for<'a> F: FnMut(&'a Drive<'a>) -> Result<T>
     {
         use yup_oauth2::{Authenticator, DefaultAuthenticatorDelegate};
-        use gdrive::get_http_client;
+        use google_apis::get_http_client;
 
         let result = {
             let auth = Authenticator::new(
@@ -130,7 +130,7 @@ impl Account {
         where for<'a> F: FnMut(&'a People<'a>) -> Result<T>
     {
         use yup_oauth2::{Authenticator, DefaultAuthenticatorDelegate};
-        use gdrive::get_http_client;
+        use google_apis::get_http_client;
 
         let result = {
             let auth = Authenticator::new(

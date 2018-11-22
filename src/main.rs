@@ -26,7 +26,7 @@ use structopt::StructOpt;
 mod accounts;
 mod database;
 mod errors;
-mod gdrive;
+mod google_apis;
 mod schema;
 mod token_storage;
 
@@ -97,7 +97,7 @@ impl DriverLoginOptions {
     /// simultaneously. Therefore we set up the authenticator flow with a null
     /// storage, and then add the resulting token to the disk storage.
     fn cli(self) -> Result<i32> {
-        let secret = gdrive::get_app_secret()?;
+        let secret = google_apis::get_app_secret()?;
         let mut account = accounts::Account::default();
         account.authorize_interactively(&secret)?;
         let email = account.fetch_email_address(&secret)?;
@@ -163,7 +163,7 @@ pub struct DriverSyncOptions {}
 
 impl DriverSyncOptions {
     fn cli(self) -> Result<i32> {
-        let secret = gdrive::get_app_secret()?;
+        let secret = google_apis::get_app_secret()?;
         let conn = database::get_db_connection()?;
 
         for maybe_info in accounts::get_accounts()? {
@@ -171,7 +171,7 @@ impl DriverSyncOptions {
 
             account.with_drive_hub(&secret, |hub| {
                 // TODO we need to delete old records and stuff!
-                for maybe_file in gdrive::list_files(&hub, |call| call.spaces("drive")) {
+                for maybe_file in google_apis::list_files(&hub, |call| call.spaces("drive")) {
                     let file = maybe_file?;
                     let name = file.name.as_ref().map_or("???", |s| s);
                     let id = match file.id.as_ref() {
