@@ -7,6 +7,7 @@ extern crate app_dirs;
 #[macro_use] extern crate diesel;
 #[macro_use] extern crate failure;
 extern crate google_drive3;
+extern crate google_people1;
 extern crate hyper;
 extern crate hyper_native_tls;
 extern crate serde;
@@ -18,7 +19,6 @@ extern crate url;
 extern crate yup_oauth2;
 
 use diesel::prelude::*;
-use failure::Error;
 use std::ffi::OsStr;
 use std::process;
 use structopt::StructOpt;
@@ -86,10 +86,7 @@ impl DriverListOptions {
 /// UI perspective to just call it "email" and let the user figure out for
 /// themselves that they can give it some other value if they feel like it.
 #[derive(Debug, StructOpt)]
-pub struct DriverLoginOptions {
-    #[structopt(help = "An email address associated with the account")]
-    email: String,
-}
+pub struct DriverLoginOptions {}
 
 impl DriverLoginOptions {
     /// The auth flow here will print out a message on the console, asking the
@@ -101,8 +98,11 @@ impl DriverLoginOptions {
     /// storage, and then add the resulting token to the disk storage.
     fn cli(self) -> Result<i32> {
         let secret = gdrive::get_app_secret()?;
-        let mut account = accounts::Account::load(&self.email)?;
+        let mut account = accounts::Account::default();
         account.authorize_interactively(&secret)?;
+        let email = account.fetch_email_address(&secret)?;
+        println!("Successfully logged in to {}.", email);
+        account.acquire_change_page_token(&secret)?;
         Ok(0)
     }
 }
@@ -169,7 +169,7 @@ impl DriverSyncOptions {
         for maybe_info in accounts::get_accounts()? {
             let (email, mut account) = maybe_info?;
 
-            account.with_hub(&secret, |hub| {
+            account.with_drive_hub(&secret, |hub| {
                 // TODO we need to delete old records and stuff!
                 for maybe_file in gdrive::list_files(&hub, |call| call.spaces("drive")) {
                     let file = maybe_file?;

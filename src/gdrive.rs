@@ -2,8 +2,12 @@
 // Licensed under the MIT License.
 
 //! Our interface with the Google Drive web API.
+//!
+//! Debugging tip: if API calls are failing mysteriously, break on
+//! `http_failure` in GDB and look at the JSON output being returned. I can't
+//! figure out a more convenient way to access the API server's error
+//! explanations.
 
-use failure::Error;
 use hyper::Client;
 use std::fs;
 use yup_oauth2::{
@@ -13,7 +17,7 @@ use yup_oauth2::{
 };
 
 use errors::{AdaptExternalResult, Result};
-use token_storage::{SCOPE, SerdeMemoryStorage, get_scopes};
+use token_storage::{ScopeList, SerdeMemoryStorage};
 
 /// The app-specific token storage type.
 pub type TokenStore<'a> = &'a mut SerdeMemoryStorage;
@@ -25,6 +29,9 @@ pub type Authenticator<'a> = YupAuthenticator<DefaultAuthenticatorDelegate,
 
 /// The app-specific Drive API "hub" type.
 pub type Drive<'a> = google_drive3::Drive<Client, Authenticator<'a>>;
+
+/// The app-specific People Service API "hub" type.
+pub type People<'a> = google_people1::PeopleService<Client, Authenticator<'a>>;
 
 
 /// Get the "application secret" needed to authenticate against Google APIs.
@@ -51,17 +58,44 @@ pub fn get_http_client() -> Result<hyper::Client> {
 }
 
 
+/// The first of tese strings is `google_drive3::Scope::Full.as_ref(). It's
+/// convenient to have this scope as a static string constant. The other
+/// scopes are needed to figure out the email address associted with each
+/// account on login.
+pub const SCOPES: &[&str] = &[
+    "https://www.googleapis.com/auth/drive",
+    "profile",
+    "email",
+];
+
+
+/// Get a ScopeList representing the scopes that we need.
+///
+/// This list is specific to this application.
+pub fn get_scopes() -> ScopeList<'static> {
+    ScopeList::new(SCOPES)
+}
+
+
 /// Helper trait for generic operations on API calls
 ///
 /// Every API call implements these features, but not as a trait, so we can't
 /// access them generically without adding a helper trait.
-pub trait CallBuilderExt {
+pub trait CallBuilderExt: Sized {
     /// Set the authorization scope to be used for this API call.
     ///
     /// This just wraps the `add_scope` call implemented for every CallBuilder
     /// type. Note that the auto-generated documentation for those functions
     /// is not accurate.
     fn set_scope<S: AsRef<str>>(self, scope: S) -> Self;
+
+    fn default_scope(mut self) -> Self {
+        for scope in SCOPES {
+            self = self.set_scope(scope);
+        }
+
+        self
+    }
 }
 
 macro_rules! impl_call_builder_ext {
@@ -78,7 +112,9 @@ macro_rules! impl_call_builder_ext {
 }
 
 impl_call_builder_ext!(google_drive3::ChangeGetStartPageTokenCall<'a, C, A>);
+impl_call_builder_ext!(google_drive3::ChangeListCall<'a, C, A>);
 impl_call_builder_ext!(google_drive3::FileListCall<'a, C, A>);
+impl_call_builder_ext!(google_people1::PeopleGetCall<'a, C, A>);
 
 
 /// Ask the user to authorize our app to use an account, interactively.
@@ -208,7 +244,7 @@ impl<'a, 'b, C, A, F> Iterator for FileListing<'a, 'b, C, A, F>
 
         let call = self.hub.files().list();
         let call = (self.customizer)(call);
-        let call = call.set_scope(SCOPE);
+        let call = call.default_scope();
 
         let call = if let Some(page_token) = self.next_page_token.take() {
             call.page_token(&page_token)

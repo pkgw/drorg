@@ -9,20 +9,6 @@ use std::result::Result as StdResult;
 use yup_oauth2::{Token, TokenStorage};
 
 
-/// This string is `google_drive3::Scope::Full.as_ref()`. It's convenient to
-/// have this value as a global string constant rather than the above
-/// expression.
-pub const SCOPE: &str = "https://www.googleapis.com/auth/drive";
-
-
-/// Get a ScopeList representing the scopes that we need.
-///
-/// This list is specific to this application.
-pub fn get_scopes() -> ScopeList<'static> {
-    ScopeList::new(&[SCOPE])
-}
-
-
 /// A helper type for yup_oauth2 scope lists, which are hashed
 /// in a specific way.
 pub struct ScopeList<'a> {

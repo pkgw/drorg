@@ -3,7 +3,8 @@
 
 //! Helpers for error handling.
 
-use google_drive3::Error as GError;
+use google_drive3::Error as DriveError;
+use google_people1::Error as PeopleError;
 use std::error::Error as StdError;
 use std::result;
 
@@ -14,7 +15,7 @@ use std::result;
 pub use failure::Fallible as Result;
 
 
-/// Helper trait for Google API error conversion.
+/// Helper trait for error conversions.
 ///
 /// The Error type used by the Google API crates includes a
 /// Box<std::error::Error>, which isn't Send, and so can't be converted into a
@@ -27,7 +28,7 @@ pub trait AdaptExternalResult {
     fn adapt(self) -> Result<Self::OkType>;
 }
 
-impl<T> AdaptExternalResult for result::Result<T, GError> {
+impl<T> AdaptExternalResult for result::Result<T, DriveError> {
     type OkType = T;
 
     /// TODO: we lose all error subtype information. If we find ourselves
@@ -36,7 +37,19 @@ impl<T> AdaptExternalResult for result::Result<T, GError> {
     fn adapt(self) -> Result<T> {
         match self {
             Ok(x) => Ok(x),
-            Err(GError::HttpError(e)) => Err(e.into()),
+            Err(DriveError::HttpError(e)) => Err(e.into()),
+            Err(e) => Err(format_err!("{}", e)),
+        }
+    }
+}
+
+impl<T> AdaptExternalResult for result::Result<T, PeopleError> {
+    type OkType = T;
+
+    fn adapt(self) -> Result<T> {
+        match self {
+            Ok(x) => Ok(x),
+            Err(PeopleError::HttpError(e)) => Err(e.into()),
             Err(e) => Err(format_err!("{}", e)),
         }
     }

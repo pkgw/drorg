@@ -3,14 +3,14 @@
 
 //! State regarding the logged-in accounts.
 
-use failure::Error;
 use serde_json;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
 use yup_oauth2::ApplicationSecret;
 
-use gdrive::Drive;
+use errors::{AdaptExternalResult, Result};
+use gdrive::{CallBuilderExt, Drive, People};
 use token_storage::SerdeMemoryStorage;
 
 
@@ -29,7 +29,7 @@ pub struct AccountData {
 
 
 /// A reference to a logged-in account.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Account {
     /// The path to the backing file for this account.
     path: PathBuf,
@@ -86,16 +86,19 @@ impl Account {
     }
 
     /// Ask the user to authorize our app to use this account, interactively.
+    ///
+    /// Note that we do *not* save the JSON file after running this API call.
+    /// The authorization may be done right as the Account is created, when it
+    /// does not yet know what filename it should save itself under.
     pub fn authorize_interactively(&mut self, secret: &ApplicationSecret) -> Result<()> {
-        ::gdrive::authorize_interactively(secret, &mut self.data.tokens)?;
-        self.save_to_json()
+        ::gdrive::authorize_interactively(secret, &mut self.data.tokens)
     }
 
-    /// Perform a web-API operation using this account.
+    /// Perform a GDrive web-API operation using this account.
     ///
     /// The callback has the signature `FnMut(hub: &Drive) -> Result<T>`. In
     /// the definition here we get to use the elusive `where for` syntax!
-    pub fn with_hub<T, F>(&mut self, secret: &ApplicationSecret, mut callback: F) -> Result<T>
+    pub fn with_drive_hub<T, F>(&mut self, secret: &ApplicationSecret, mut callback: F) -> Result<T>
         where for<'a> F: FnMut(&'a Drive<'a>) -> Result<T>
     {
         use yup_oauth2::{Authenticator, DefaultAuthenticatorDelegate};
@@ -119,12 +122,101 @@ impl Account {
         Ok(result)
     }
 
+    /// Shim for with_people_hub that doesn't save to JSON -- we need this to
+    /// make the API call to get the email address associated with the account
+    /// when setting it up, because otherwise it will fail when trying to
+    /// write JSON to an as-yet-unknown path.
+    fn with_people_hub_nosave<T, F>(&mut self, secret: &ApplicationSecret, mut callback: F) -> Result<T>
+        where for<'a> F: FnMut(&'a People<'a>) -> Result<T>
+    {
+        use yup_oauth2::{Authenticator, DefaultAuthenticatorDelegate};
+        use gdrive::get_http_client;
+
+        let result = {
+            let auth = Authenticator::new(
+                secret,
+                DefaultAuthenticatorDelegate,
+                get_http_client()?,
+                &mut self.data.tokens,
+                None
+            );
+            let hub = google_people1::PeopleService::new(get_http_client()?, auth);
+            callback(&hub)?
+        };
+
+        Ok(result)
+    }
+
+    /// Perform a Google People Service web-API operation using this account.
+    ///
+    /// The callback has the signature `FnMut(hub: &Drive) -> Result<T>`. In
+    /// the definition here we get to use the elusive `where for` syntax!
+    pub fn with_people_hub<T, F>(&mut self, secret: &ApplicationSecret, mut callback: F) -> Result<T>
+        where for<'a> F: FnMut(&'a People<'a>) -> Result<T>
+    {
+        let result = self.with_people_hub_nosave(secret, callback)?;
+        self.save_to_json()?;
+        Ok(result)
+    }
+
+    /// Ask Google for the email address associated with this account.
+    pub fn fetch_email_address(&mut self, secret: &ApplicationSecret) -> Result<String> {
+        let user = self.with_people_hub_nosave(secret, |hub| {
+            let (_resp, info) = hub.people().get("people/me")
+                .person_fields("emailAddresses")
+                .default_scope()
+                .doit()
+                .adapt()?;
+            Ok(info)
+        })?;
+
+        let mut email = None;
+
+        for address in user.email_addresses.ok_or(format_err!("server response did not include email addresses"))? {
+            if let Some(meta) = address.metadata {
+                if let Some(true) = meta.primary {
+                    if address.value.is_some() {
+                        email = address.value;
+                        break;
+                    }
+                }
+            }
+        }
+
+        let email = email.ok_or(format_err!("server response did not include a primary email adddress"))?;
+
+        // Kind of ugly: set the save path for our JSON file now that we know
+        // what the associated email is. Then we can save the data.
+
+        let mut path = app_dirs::app_dir(app_dirs::AppDataType::UserData, &::APP_INFO, "accounts")?;
+        path.push(&email);
+        path.set_extension("json");
+        self.path = path;
+        self.save_to_json()?;
+
+        Ok(email)
+    }
+
+    /// Acquire a new token for checking for recent document changes in this account.
+    pub fn acquire_change_page_token(&mut self, secret: &ApplicationSecret) -> Result<()> {
+        let token = self.with_drive_hub(secret, |hub| {
+            let (_resp, info) = hub.changes().get_start_page_token()
+                .default_scope()
+                .doit()
+                .adapt()?;
+            info.start_page_token.ok_or(format_err!("server response did not include token"))
+        })?;
+
+        self.data.change_page_token = Some(token);
+        self.save_to_json()?;
+        Ok(())
+    }
 }
 
 
 /// Get information about all of the accounts.
 pub fn get_accounts() -> Result<impl Iterator<Item = Result<(String, Account)>>> {
-    let path = app_dirs::get_app_dir(app_dirs::AppDataType::UserData, &::APP_INFO, "accounts")?;
+    let path = app_dirs::app_dir(app_dirs::AppDataType::UserData, &::APP_INFO, "accounts")?;
 
     // Surely there's a better way to implement this ...
     Ok(fs::read_dir(path)?.filter_map(|maybe_entry| {
