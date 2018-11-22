@@ -9,7 +9,9 @@
 //! explanations.
 
 use hyper::Client;
+use std::cell::RefCell;
 use std::fs;
+use std::rc::Rc;
 use yup_oauth2::{
     Authenticator as YupAuthenticator, ApplicationSecret,
     ConsoleApplicationSecret, DefaultAuthenticatorDelegate,
@@ -312,6 +314,218 @@ impl<'a, 'b, C, A, F> Iterator for FileListing<'a, 'b, C, A, F>
 impl<'a, 'b, C, A, F> std::iter::FusedIterator for FileListing<'a, 'b, C, A, F>
     where 'b: 'a,
           F: FnMut(google_drive3::FileListCall<'a, C, A>) -> google_drive3::FileListCall<'a, C, A>,
+          C: 'b + std::borrow::BorrowMut<hyper::Client>,
+          A: 'b + yup_oauth2::GetToken
+{}
+
+
+
+/// An app-specific type for the ChangeListCall type from `google_drive3`.
+///
+/// The main reason for providing this is to make it easier to write the
+/// signature of the `list_changes` call.
+pub type ChangeListCall<'a, 'b> = google_drive3::ChangeListCall<'a, Client, Authenticator<'b>>;
+
+/// Return a type for iterating over all changes associated with this "hub".
+///
+/// Because information must be fed back to the caller after the iteration,
+/// this function returns a helper type that has an `iter()` method that
+/// should be used to do the iteration.
+///
+/// The function *f* can customize the ChangeListCall instances to tune the
+/// query that will be sent to Google's servers. The results for each query
+/// may need to be paged, so the function may be called multiple times.
+pub fn list_changes<'a, 'b, F>(
+    hub: &'b Drive<'a>, page_token: &str, f: F
+) -> ChangeListing<'a, 'b, Client, Authenticator<'a>, F>
+    where 'b: 'a,
+          F: FnMut(ChangeListCall<'a, 'b>) -> ChangeListCall<'a, 'b> + 'a
+{
+    ChangeListing::new(hub, page_token, f)
+}
+
+
+/// Helper type for `list_changes`.
+///
+/// After iterating over the changes, we need to retrieve the updated token
+/// that the API told us. Since for-loop iteration consumes the thing being
+/// iterated over, we need this type to make the retrieval possible.
+pub struct ChangeListing<'a, 'b, C, A, F>
+    where 'b: 'a,
+          F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A>,
+          C: 'b + std::borrow::BorrowMut<hyper::Client>,
+          A: 'b + yup_oauth2::GetToken
+{
+    iter: Option<ChangeListingIterator<'a, 'b, C, A, F>>,
+
+    // Ugh, this is so gnarly.
+    next_page_token: Rc<RefCell<String>>,
+}
+
+impl<'a, 'b, C, A, F> ChangeListing<'a, 'b, C, A, F>
+    where 'b: 'a,
+          F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A> + 'a,
+          C: 'b + std::borrow::BorrowMut<hyper::Client>,
+          A: 'b + yup_oauth2::GetToken
+{
+    fn new(hub: &'b google_drive3::Drive<C, A>, page_token: &str, f: F) -> ChangeListing<'a, 'b, C, A, F> {
+        let tok = Rc::new(RefCell::new(page_token.to_owned()));
+        let iter = Some(ChangeListingIterator::new(hub, tok.clone(), f));
+
+        ChangeListing {
+            iter,
+            next_page_token: tok
+        }
+    }
+
+    pub fn iter(&mut self) -> impl Iterator<Item = Result<google_drive3::Change>> + 'a {
+        self.iter.take().unwrap()
+    }
+
+    pub fn into_change_page_token(self) -> String {
+        Rc::try_unwrap(self.next_page_token).unwrap().into_inner()
+    }
+}
+
+
+/// Iteration helper for paging `changes.list` results.
+struct ChangeListingIterator<'a, 'b, C, A, F>
+    where 'b: 'a,
+          F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A>,
+          C: 'b + std::borrow::BorrowMut<hyper::Client>,
+          A: 'b + yup_oauth2::GetToken
+{
+    hub: &'b google_drive3::Drive<C, A>,
+    next_page_token: Rc<RefCell<String>>,
+    customizer: F,
+    cur_page: Option<std::vec::IntoIter<google_drive3::Change>>,
+    finished: bool,
+    final_page: bool,
+    phantoma: std::marker::PhantomData<&'a A>,
+}
+
+impl<'a, 'b, C, A, F> ChangeListingIterator<'a, 'b, C, A, F>
+    where 'b: 'a,
+          F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A>,
+          C: 'b + std::borrow::BorrowMut<hyper::Client>,
+          A: 'b + yup_oauth2::GetToken
+{
+    fn new(hub: &'b google_drive3::Drive<C, A>, tok: Rc<RefCell<String>>, f: F) -> ChangeListingIterator<'a, 'b, C, A, F> {
+        ChangeListingIterator {
+            hub,
+            next_page_token: tok,
+            customizer: f,
+            cur_page: None,
+            finished: false,
+            final_page: false,
+            phantoma: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<'a, 'b, C, A, F> Iterator for ChangeListingIterator<'a, 'b, C, A, F>
+    where 'b: 'a,
+          F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A>,
+          C: 'b + std::borrow::BorrowMut<hyper::Client>,
+          A: 'b + yup_oauth2::GetToken
+{
+    type Item = Result<google_drive3::Change>;
+
+    fn next(&mut self) -> Option<Result<google_drive3::Change>> {
+        // If we set this flag, we either errored out or are totally done.
+
+        if self.finished {
+            return None;
+        }
+
+        // Are we currently in the midst of a page with items left? If so,
+        // just return the next one.
+
+        if let Some(iter) = self.cur_page.as_mut() {
+            if let Some(change) = iter.next() {
+                return Some(Ok(change));
+            }
+        }
+
+        // Guess not. Was that the last page? If so, hooray -- we successfully
+        // iterated over every document.
+
+        if self.final_page {
+            self.finished = true;
+            return None;
+        }
+
+        // Nope. Try issuing a request for the next page of results.
+
+        let call = self.hub.changes().list(&(*self.next_page_token).borrow());
+        let call = (self.customizer)(call);
+        let call = call.default_scope();
+
+        let (_resp, listing) = match call.doit().adapt() {
+            Ok(t) => t,
+            Err(e) => {
+                self.finished = true;
+                return Some(Err(e));
+            }
+        };
+
+        // The listing contains (1) maybe a token that we can use to get the
+        // next page of results, (2) if not that, then a token for us to ask
+        // about changes next time, and (3) a vector of information about the
+        // changes in this page.
+
+        if let Some(page_token) = listing.next_page_token {
+            (*self.next_page_token).replace(page_token);
+        } else {
+            if let Some(start_page_token) = listing.new_start_page_token {
+                (*self.next_page_token).replace(start_page_token);
+                self.final_page = true;
+            } else {
+                self.finished = true;
+                return Some(Err(format_err!("API call failed: Neither next_page_token nor \
+                                             new_start_page_token provided")));
+            }
+        }
+
+        let mut changes_iter = match listing.changes {
+            Some(f) => f.into_iter(),
+            None => {
+                self.finished = true;
+                return Some(Err(format_err!("API call failed: no 'changes' returned")));
+            }
+        };
+
+        // OK, we finally have a iterator over a vector of changes.
+
+        let the_change = match changes_iter.next() {
+            Some(f) => f,
+            None => {
+                // This page was empty. This can of course happen there are no
+                // changes to report, and it's OK if this was the final page.
+                // If this wasn't the final page, we're in trouble because we
+                // really ought to return Some(page). We could in principle
+                // loop back and reissue the API call, and maybe the next page
+                // *will* have items ... but that's a pain. So if this case
+                // happens, error out. Either way, though, we're done.
+
+                self.finished = true;
+
+                return if self.final_page {
+                    None
+                } else {
+                    Some(Err(format_err!("API call failed: empty page in midst of query")))
+                };
+            }
+        };
+
+        self.cur_page = Some(changes_iter);
+        Some(Ok(the_change))
+    }
+}
+
+impl<'a, 'b, C, A, F> std::iter::FusedIterator for ChangeListingIterator<'a, 'b, C, A, F>
+    where 'b: 'a,
+          F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A>,
           C: 'b + std::borrow::BorrowMut<hyper::Client>,
           A: 'b + yup_oauth2::GetToken
 {}

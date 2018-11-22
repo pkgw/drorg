@@ -35,7 +35,7 @@ pub struct Account {
     path: PathBuf,
 
     /// The persistent data.
-    data: AccountData,
+    pub data: AccountData,
 }
 
 impl Account {

@@ -201,6 +201,48 @@ impl DriverSyncOptions {
 }
 
 
+/// Temp debugging
+#[derive(Debug, StructOpt)]
+pub struct DriverTempOptions {}
+
+impl DriverTempOptions {
+    fn cli(self) -> Result<i32> {
+        let secret = google_apis::get_app_secret()?;
+
+        for maybe_info in accounts::get_accounts()? {
+            let (email, mut account) = maybe_info?;
+
+            let token = account.data.change_page_token.take().ok_or(
+                format_err!("no paging token for {}", email)
+            )?;
+
+            let token = account.with_drive_hub(&secret, |hub| {
+                let mut lister = google_apis::list_changes(
+                    &hub, &token,
+                    |call| call.spaces("drive")
+                        .supports_team_drives(true)
+                        .include_team_drive_items(true)
+                        .include_removed(true)
+                        .include_corpus_removals(true)
+                );
+
+                for maybe_change in lister.iter() {
+                    let change = maybe_change?;
+                    println!("{:?}", change);
+                }
+
+                Ok(lister.into_change_page_token())
+            })?;
+
+            account.data.change_page_token = Some(token);
+            account.save_to_json()?;
+        }
+
+        Ok(0)
+    }
+}
+
+
 #[derive(Debug, StructOpt)]
 #[structopt(name = "driver", about = "Deal with Google Drive.")]
 pub enum DriverCli {
@@ -219,6 +261,10 @@ pub enum DriverCli {
     #[structopt(name = "sync")]
     /// Synchronize the local database with Google Drve
     Sync(DriverSyncOptions),
+
+    #[structopt(name = "temp")]
+    /// Temporary dev work
+    Temp(DriverTempOptions),
 }
 
 impl DriverCli {
@@ -228,6 +274,7 @@ impl DriverCli {
             DriverCli::Login(opts) => opts.cli(),
             DriverCli::Open(opts) => opts.cli(),
             DriverCli::Sync(opts) => opts.cli(),
+            DriverCli::Temp(opts) => opts.cli(),
         }
     }
 }
