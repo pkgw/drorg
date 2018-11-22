@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::io;
+use std::result::Result as StdResult;
 use yup_oauth2::{Token, TokenStorage};
 
 
@@ -72,7 +73,7 @@ impl TokenStorage for SerdeMemoryStorage {
     // actually doesn't. So for convenience we use io::Error.
     type Error = io::Error;
 
-    fn set(&mut self, scope_hash: u64, _: &Vec<&str>, token: Option<Token>) -> Result<(), io::Error> {
+    fn set(&mut self, scope_hash: u64, _: &Vec<&str>, token: Option<Token>) -> StdResult<(), io::Error> {
         match token {
             Some(t) => self.tokens.insert(scope_hash, t),
             None => self.tokens.remove(&scope_hash),
@@ -80,7 +81,7 @@ impl TokenStorage for SerdeMemoryStorage {
         Ok(())
     }
 
-    fn get(&self, scope_hash: u64, _: &Vec<&str>) -> Result<Option<Token>, io::Error> {
+    fn get(&self, scope_hash: u64, _: &Vec<&str>) -> StdResult<Option<Token>, io::Error> {
         match self.tokens.get(&scope_hash) {
             Some(t) => Ok(Some(t.clone())),
             None => Ok(None),
@@ -93,11 +94,11 @@ impl TokenStorage for SerdeMemoryStorage {
 impl<'a> TokenStorage for &'a mut SerdeMemoryStorage {
     type Error = io::Error;
 
-    fn set(&mut self, hash: u64, scopes: &Vec<&str>, token: Option<Token>) -> Result<(), io::Error> {
+    fn set(&mut self, hash: u64, scopes: &Vec<&str>, token: Option<Token>) -> StdResult<(), io::Error> {
         (**self).set(hash, scopes, token)
     }
 
-    fn get(&self, hash: u64, scopes: &Vec<&str>) -> Result<Option<Token>, io::Error> {
+    fn get(&self, hash: u64, scopes: &Vec<&str>) -> StdResult<Option<Token>, io::Error> {
         (**self).get(hash, scopes)
     }
 }

@@ -46,7 +46,7 @@ impl Account {
     ///
     /// Accounts should be keyed by an associated email address, although we
     /// can't technically enforce that the user specifies one as the key,
-    pub fn load<S: AsRef<str>>(email: S) -> Result<Account, Error> {
+    pub fn load<S: AsRef<str>>(email: S) -> Result<Account> {
         let mut path = app_dirs::get_app_dir(app_dirs::AppDataType::UserData, &::APP_INFO, "accounts")?;
         path.push(email.as_ref());
         path.set_extension("json");
@@ -70,7 +70,7 @@ impl Account {
     ///
     /// A temporary file is used in case something goes wrong while writing
     /// out the data.
-    pub fn save_to_json(&self) -> Result<(), Error> {
+    pub fn save_to_json(&self) -> Result<()> {
         let mut destdir = self.path.clone();
         destdir.pop();
 
@@ -86,18 +86,17 @@ impl Account {
     }
 
     /// Ask the user to authorize our app to use this account, interactively.
-    pub fn authorize_interactively(&mut self, secret: &ApplicationSecret) -> Result<(), Error> {
+    pub fn authorize_interactively(&mut self, secret: &ApplicationSecret) -> Result<()> {
         ::gdrive::authorize_interactively(secret, &mut self.data.tokens)?;
         self.save_to_json()
     }
 
     /// Perform a web-API operation using this account.
     ///
-    /// The callback has the signature `FnMut(hub: &Drive) -> Result<T,
-    /// Error>`. In the definition here we get to use the elusive `where for`
-    /// syntax!
-    pub fn with_hub<T, F>(&mut self, secret: &ApplicationSecret, mut callback: F) -> Result<T, Error>
-        where for<'a> F: FnMut(&'a Drive<'a>) -> Result<T, Error>
+    /// The callback has the signature `FnMut(hub: &Drive) -> Result<T>`. In
+    /// the definition here we get to use the elusive `where for` syntax!
+    pub fn with_hub<T, F>(&mut self, secret: &ApplicationSecret, mut callback: F) -> Result<T>
+        where for<'a> F: FnMut(&'a Drive<'a>) -> Result<T>
     {
         use yup_oauth2::{Authenticator, DefaultAuthenticatorDelegate};
         use gdrive::get_http_client;
@@ -124,7 +123,7 @@ impl Account {
 
 
 /// Get information about all of the accounts.
-pub fn get_accounts() -> Result<impl Iterator<Item = Result<(String, Account), Error>>, Error> {
+pub fn get_accounts() -> Result<impl Iterator<Item = Result<(String, Account)>>> {
     let path = app_dirs::get_app_dir(app_dirs::AppDataType::UserData, &::APP_INFO, "accounts")?;
 
     // Surely there's a better way to implement this ...

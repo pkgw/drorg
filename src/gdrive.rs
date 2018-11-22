@@ -12,6 +12,7 @@ use yup_oauth2::{
     FlowType, GetToken, NullStorage, TokenStorage,
 };
 
+use errors::{AdaptExternalResult, Result};
 use token_storage::{SCOPE, SerdeMemoryStorage, get_scopes};
 
 /// The app-specific token storage type.
@@ -32,7 +33,7 @@ pub type Drive<'a> = google_drive3::Drive<Client, Authenticator<'a>>;
 /// be cool but not something to spend time on right now.
 ///
 /// On Linux the desired filepath is `~/.config/goodriver/client_id.json`.
-pub fn get_app_secret() -> Result<ApplicationSecret, Error> {
+pub fn get_app_secret() -> Result<ApplicationSecret> {
     let p = app_dirs::get_app_dir(app_dirs::AppDataType::UserConfig, &::APP_INFO, "client_id.json")?;
     let f = fs::File::open(p)?;
     let cfg: ConsoleApplicationSecret = serde_json::from_reader(f)?;
@@ -41,7 +42,7 @@ pub fn get_app_secret() -> Result<ApplicationSecret, Error> {
 
 
 /// Get an HTTP client with all the bells and whistles we need.
-pub fn get_http_client() -> Result<hyper::Client, Error> {
+pub fn get_http_client() -> Result<hyper::Client> {
     Ok(hyper::Client::with_connector(
         hyper::net::HttpsConnector::new(
             hyper_native_tls::NativeTlsClient::new()?
@@ -85,7 +86,13 @@ impl_call_builder_ext!(google_drive3::FileListCall<'a, C, A>);
 /// Note that if the user has multiple accounts, they'll be able to choose
 /// which one to authorize the app for. We can't have any control over which
 /// one it is.
-pub fn authorize_interactively<T: TokenStorage>(secret: &ApplicationSecret, storage: &mut T) -> Result<(), Error> {
+///
+/// The `where` clause in the definition here is a mini-hack that allows the
+/// compiler to be sure that the `storage.set()` error type can be converted
+/// into a failure::Error.
+pub fn authorize_interactively<T: TokenStorage>(secret: &ApplicationSecret, storage: &mut T) -> Result<()>
+    where <T as TokenStorage>::Error: Sync + Send
+{
     let scopes = get_scopes();
 
     let mut auth = YupAuthenticator::new(
@@ -96,16 +103,8 @@ pub fn authorize_interactively<T: TokenStorage>(secret: &ApplicationSecret, stor
         Some(FlowType::InstalledInteractive)
     );
 
-    // Can't figure out a nice blanket way to translate std::error::Error into
-    // failure::Error.
-
-    let token = auth.token(scopes.as_vec()).map_err(
-        |e| format_err!("OAuth2 login failed: {}", e)
-    )?;
-
-    storage.set(scopes.hash, &scopes.scopes, Some(token)).map_err(
-        |e| format_err!("couldn't save auth token: {}", e)
-    )
+    let token = auth.token(scopes.as_vec()).adapt()?;
+    Ok(storage.set(scopes.hash, &scopes.scopes, Some(token))?)
 }
 
 
@@ -123,7 +122,7 @@ pub type FileListCall<'a, 'b> = google_drive3::FileListCall<'a, Client, Authenti
 /// think? Based on the examples I've seen, it seems that you might need to
 /// use the same query details when fetching subsequent pages in a multi-page
 /// query.)
-pub fn list_files<'a, 'b, F>(hub: &'b Drive<'a>, f: F) -> impl Iterator<Item = Result<google_drive3::File, Error>> + 'a
+pub fn list_files<'a, 'b, F>(hub: &'b Drive<'a>, f: F) -> impl Iterator<Item = Result<google_drive3::File>> + 'a
     where 'b: 'a,
           F: 'a + FnMut(FileListCall<'a, 'b>) -> FileListCall<'a, 'b>
 {
@@ -177,9 +176,9 @@ impl<'a, 'b, C, A, F> Iterator for FileListing<'a, 'b, C, A, F>
           C: 'b + std::borrow::BorrowMut<hyper::Client>,
           A: 'b + yup_oauth2::GetToken
 {
-    type Item = Result<google_drive3::File, Error>;
+    type Item = Result<google_drive3::File>;
 
-    fn next(&mut self) -> Option<Result<google_drive3::File, Error>> {
+    fn next(&mut self) -> Option<Result<google_drive3::File>> {
         // If we set this flag, we either errored out or are totally done.
 
         if self.finished {
@@ -217,11 +216,11 @@ impl<'a, 'b, C, A, F> Iterator for FileListing<'a, 'b, C, A, F>
             call
         };
 
-        let (_resp, listing) = match call.doit() {
+        let (_resp, listing) = match call.doit().adapt() {
             Ok(t) => t,
             Err(e) => {
                 self.finished = true;
-                return Some(Err(format_err!("API call failed: {}", e)));
+                return Some(Err(e));
             }
         };
 

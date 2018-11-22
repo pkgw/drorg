@@ -25,9 +25,12 @@ use structopt::StructOpt;
 
 mod accounts;
 mod database;
+mod errors;
 mod gdrive;
 mod schema;
 mod token_storage;
+
+use errors::Result;
 
 
 /// Information used to find out app-specific config files, e.g. the
@@ -39,7 +42,7 @@ const APP_INFO: app_dirs::AppInfo = app_dirs::AppInfo { name: "goodriver", autho
 ///
 /// HACK: I'm sure there's a nice cross-platform crate to do this, but
 /// I customize it to use my Google-specific Firefox profile.
-fn open_url<S: AsRef<OsStr>>(url: S) -> Result<(), Error> {
+fn open_url<S: AsRef<OsStr>>(url: S) -> Result<()> {
     use std::process::Command;
 
     let status = Command::new("firefox")
@@ -60,7 +63,7 @@ fn open_url<S: AsRef<OsStr>>(url: S) -> Result<(), Error> {
 pub struct DriverListOptions {}
 
 impl DriverListOptions {
-    fn cli(self) -> Result<i32, Error> {
+    fn cli(self) -> Result<i32> {
         // TODO: sync with Google, or something
         let conn = database::get_db_connection()?;
 
@@ -96,7 +99,7 @@ impl DriverLoginOptions {
     /// We want to allow the user to login to multiple accounts
     /// simultaneously. Therefore we set up the authenticator flow with a null
     /// storage, and then add the resulting token to the disk storage.
-    fn cli(self) -> Result<i32, Error> {
+    fn cli(self) -> Result<i32> {
         let secret = gdrive::get_app_secret()?;
         let mut account = accounts::Account::load(&self.email)?;
         account.authorize_interactively(&secret)?;
@@ -113,7 +116,7 @@ pub struct DriverOpenOptions {
 }
 
 impl DriverOpenOptions {
-    fn cli(self) -> Result<i32, Error> {
+    fn cli(self) -> Result<i32> {
         // TODO: synchronize the database if needed, or something
         let conn = database::get_db_connection()?;
         let pattern = format!("%{}%", self.stem);
@@ -159,7 +162,7 @@ impl DriverOpenOptions {
 pub struct DriverSyncOptions {}
 
 impl DriverSyncOptions {
-    fn cli(self) -> Result<i32, Error> {
+    fn cli(self) -> Result<i32> {
         let secret = gdrive::get_app_secret()?;
         let conn = database::get_db_connection()?;
 
@@ -219,7 +222,7 @@ pub enum DriverCli {
 }
 
 impl DriverCli {
-    fn cli(self) -> Result<i32, Error> {
+    fn cli(self) -> Result<i32> {
         match self {
             DriverCli::List(opts) => opts.cli(),
             DriverCli::Login(opts) => opts.cli(),
