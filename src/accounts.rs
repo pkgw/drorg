@@ -5,7 +5,6 @@
 
 use serde_json;
 use std::fs;
-use std::io;
 use std::path::PathBuf;
 use yup_oauth2::ApplicationSecret;
 
@@ -41,27 +40,15 @@ pub struct Account {
 impl Account {
     /// Read account information.
     ///
-    /// If the backing JSON data file does not exist, the error is swallowed
-    /// and an empty data structure is returned.
-    ///
-    /// Accounts should be keyed by an associated email address, although we
-    /// can't technically enforce that the user specifies one as the key,
+    /// Accounts are keyed by an email address that is scanned from the
+    /// account information upon first login.
     pub fn load<S: AsRef<str>>(email: S) -> Result<Account> {
         let mut path = app_dirs::get_app_dir(app_dirs::AppDataType::UserData, &::APP_INFO, "accounts")?;
         path.push(email.as_ref());
         path.set_extension("json");
 
-        let data = match fs::File::open(&path) {
-            Ok(f) => serde_json::from_reader(f)?,
-
-            Err(e) => {
-                if e.kind() != io::ErrorKind::NotFound {
-                    return Err(e.into());
-                }
-
-                AccountData::default()
-            }
-        };
+        let file = fs::File::open(&path)?;
+        let data = serde_json::from_reader(file)?;
 
         Ok(Account { path, data })
     }

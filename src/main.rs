@@ -169,6 +169,26 @@ impl DriverOpenOptions {
 }
 
 
+/// Resynchronize with an account.
+#[derive(Debug, StructOpt)]
+pub struct DriverResyncOptions {
+    #[structopt(help = "The email address identifying the account.")]
+    email: String,
+}
+
+impl DriverResyncOptions {
+    fn cli(self, mut app: Application) -> Result<i32> {
+        let mut account = accounts::Account::load(&self.email)?;
+
+        // Redo the initialization rigamarole from the "login" command.
+        account.acquire_change_page_token(&app.secret)?;
+        app.import_documents(&self.email, &mut account)?;
+
+        Ok(0)
+    }
+}
+
+
 /// Temp debugging
 #[derive(Debug, StructOpt)]
 pub struct DriverTempOptions {}
@@ -225,6 +245,10 @@ pub enum DriverCli {
     /// Open a document in a web browser
     Open(DriverOpenOptions),
 
+    #[structopt(name = "resync")]
+    /// Re-synchronize with an account
+    Resync(DriverResyncOptions),
+
     #[structopt(name = "temp")]
     /// Temporary dev work
     Temp(DriverTempOptions),
@@ -238,6 +262,7 @@ impl DriverCli {
             DriverCli::List(opts) => opts.cli(app),
             DriverCli::Login(opts) => opts.cli(app),
             DriverCli::Open(opts) => opts.cli(app),
+            DriverCli::Resync(opts) => opts.cli(app),
             DriverCli::Temp(opts) => opts.cli(app),
         }
     }
