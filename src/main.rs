@@ -180,18 +180,18 @@ impl DriverOpenOptions {
 
 /// Resynchronize with an account.
 #[derive(Debug, StructOpt)]
-pub struct DriverResyncOptions {
-    #[structopt(help = "The email address identifying the account.")]
-    email: String,
-}
+pub struct DriverResyncOptions {}
 
 impl DriverResyncOptions {
     fn cli(self, mut app: Application) -> Result<i32> {
-        let mut account = accounts::Account::load(&self.email)?;
+        for maybe_info in accounts::get_accounts()? {
+            let (email, mut account) = maybe_info?;
 
-        // Redo the initialization rigamarole from the "login" command.
-        account.acquire_change_page_token(&app.secret)?;
-        app.import_documents(&mut account)?;
+            // Redo the initialization rigamarole from the "login" command.
+            println!("Re-initializing {} ...", email);
+            account.acquire_change_page_token(&app.secret)?;
+            app.import_documents(&mut account)?;
+        }
 
         Ok(0)
     }
