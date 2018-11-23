@@ -40,8 +40,12 @@ impl Application {
     /// with an account.
     pub fn import_documents(&mut self, email: &str, account: &mut Account) -> Result<()> {
         account.with_drive_hub(&self.secret, |hub| {
-            for maybe_file in google_apis::list_files(&hub, |call| call.spaces("drive")) {
+            for maybe_file in google_apis::list_files(&hub, |call| {
+                call.spaces("drive")
+                    .param("fields", "files(id,name,starred)")
+            }) {
                 let file = maybe_file?;
+
                 let name = file.name.as_ref().map_or("???", |s| s);
                 let id = match file.id.as_ref() {
                     Some(s) => s,
@@ -50,13 +54,15 @@ impl Application {
                         continue;
                     }
                 };
+                let starred = file.starred.unwrap_or(false);
 
                 let new_doc = database::NewDoc {
-                    id: id,
-                    name: name,
+                    id,
+                    name,
+                    starred,
                 };
 
-                diesel::insert_or_ignore_into(schema::docs::table)
+                diesel::replace_into(schema::docs::table)
                     .values(&new_doc)
                     .execute(&self.conn)?;
             }

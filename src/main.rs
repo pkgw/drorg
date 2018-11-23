@@ -71,7 +71,8 @@ impl DriverListOptions {
         use schema::docs::dsl::*;
 
         for doc in docs.load::<database::Doc>(&app.conn)? {
-            println!("   {} ({})", doc.name, doc.id);
+            let star = if doc.starred { "*" } else { " " };
+            println!("   {} {} ({})", star, doc.name, doc.id);
         }
 
         Ok(0)

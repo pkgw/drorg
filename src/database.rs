@@ -29,6 +29,9 @@ pub struct Doc {
     ///
     /// This value can change.
     pub name: String,
+
+    /// Whether the user has starred this document.
+    pub starred: bool,
 }
 
 impl Doc {
@@ -57,4 +60,7 @@ pub struct NewDoc<'a> {
 
     /// The current name of this document.
     pub name: &'a str,
+
+    /// Whether the user has starred this document.
+    pub starred: bool,
 }
