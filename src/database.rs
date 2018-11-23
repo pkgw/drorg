@@ -33,6 +33,9 @@ pub struct Doc {
 
     /// Whether the user has starred this document.
     pub starred: bool,
+
+    /// Whether this document is in the trash.
+    pub trashed: bool,
 }
 
 impl Doc {
@@ -64,6 +67,9 @@ pub struct NewDoc<'a> {
 
     /// Whether the user has starred this document.
     pub starred: bool,
+
+    /// Whether this document is in the trash.
+    pub trashed: bool,
 }
 
 impl<'a> NewDoc<'a> {
@@ -74,11 +80,13 @@ impl<'a> NewDoc<'a> {
         )?;
         let name = &file.name.as_ref().map_or("???", |s| s);
         let starred = file.starred.unwrap_or(false);
+        let trashed = file.trashed.unwrap_or(false);
 
         Ok(NewDoc {
             id,
             name,
             starred,
+            trashed,
         })
    }
 }

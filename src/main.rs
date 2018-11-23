@@ -79,7 +79,8 @@ impl DriverListOptions {
 
         for doc in docs.load::<database::Doc>(&app.conn)? {
             let star = if doc.starred { "*" } else { " " };
-            println!("   {} {} ({})", star, doc.name, doc.id);
+            let trash = if doc.trashed { "T" } else { " " };
+            println!("   {}{} {} ({})", star, trash, doc.name, doc.id);
         }
 
         Ok(0)

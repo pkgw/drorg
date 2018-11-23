@@ -3,5 +3,6 @@ table! {
         id -> Text,
         name -> Text,
         starred -> Bool,
+        trashed -> Bool,
     }
 }
