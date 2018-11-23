@@ -43,9 +43,12 @@ impl Account {
     /// Accounts are keyed by an email address that is scanned from the
     /// account information upon first login.
     pub fn load<S: AsRef<str>>(email: S) -> Result<Account> {
+        // Note that PathBuf.set_extension() will destroy, e.g., ".com" at the
+        // end of an email address.
         let mut path = app_dirs::get_app_dir(app_dirs::AppDataType::UserData, &::APP_INFO, "accounts")?;
-        path.push(email.as_ref());
-        path.set_extension("json");
+        let mut email_ext = email.as_ref().to_owned();
+        email_ext.push_str(".json");
+        path.push(&email_ext);
 
         let file = fs::File::open(&path)?;
         let data = serde_json::from_reader(file)?;
@@ -174,11 +177,14 @@ impl Account {
         let email = email.ok_or(format_err!("server response did not include a primary email adddress"))?;
 
         // Kind of ugly: set the save path for our JSON file now that we know
-        // what the associated email is. Then we can save the data.
+        // what the associated email is. Then we can save the data. Note that
+        // PathBuf.set_extension() will destroy, e.g., ".com" at the end of an
+        // email address.
 
         let mut path = app_dirs::app_dir(app_dirs::AppDataType::UserData, &::APP_INFO, "accounts")?;
-        path.push(&email);
-        path.set_extension("json");
+        let mut email_ext = email.clone();
+        email_ext.push_str(".json");
+        path.push(&email_ext);
         self.path = path;
         self.save_to_json()?;
 
@@ -212,32 +218,26 @@ pub fn get_accounts() -> Result<impl Iterator<Item = Result<(String, Account)>>>
             Err(e) => Some(Err(e.into())),
 
             Ok(entry) => {
-                let mut name: PathBuf = entry.file_name().into();
-
-                if let Some(ext) = name.extension() {
-                    if let Some(ext_str) = ext.to_str() {
-                        if ext_str == "json" {
+                let mut name = match entry.file_name().to_str() {
+                    Some(n) => {
+                        if n.ends_with(".json") {
+                            n.to_owned()
                         } else {
                             return None;
                         }
-                    } else {
-                        return None;
-                    }
-                } else {
-                    return None;
-                }
+                    },
 
-                name.set_extension("");
+                    None => return None,
+                };
 
-                if let Some(email) = name.to_str() {
-                    let email = email.to_owned();
+                // Safe since ".json" is always 5 bytes in UTF8:
+                let new_len = name.len() - 5;
+                name.truncate(new_len);
+                let email = name;
 
-                    match Account::load(&email) {
-                        Ok(acct) => Some(Ok((email, acct))),
-                        Err(e) => Some(Err(e.into())),
-                    }
-                } else {
-                    None
+                match Account::load(&email) {
+                    Ok(acct) => Some(Ok((email, acct))),
+                    Err(e) => Some(Err(e.into())),
                 }
             },
         }
