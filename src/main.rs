@@ -26,12 +26,14 @@ use std::process;
 use structopt::StructOpt;
 
 mod accounts;
+mod app;
 mod database;
 mod errors;
 mod google_apis;
 mod schema;
 mod token_storage;
 
+use app::Application;
 use errors::Result;
 
 
@@ -65,13 +67,10 @@ fn open_url<S: AsRef<OsStr>>(url: S) -> Result<()> {
 pub struct DriverListOptions {}
 
 impl DriverListOptions {
-    fn cli(self) -> Result<i32> {
-        // TODO: sync with Google, or something
-        let conn = database::get_db_connection()?;
-
+    fn cli(self, app: Application) -> Result<i32> {
         use schema::docs::dsl::*;
 
-        for doc in docs.load::<database::Doc>(&conn)? {
+        for doc in docs.load::<database::Doc>(&app.conn)? {
             println!("   {} ({})", doc.name, doc.id);
         }
 
@@ -98,13 +97,12 @@ impl DriverLoginOptions {
     /// We want to allow the user to login to multiple accounts
     /// simultaneously. Therefore we set up the authenticator flow with a null
     /// storage, and then add the resulting token to the disk storage.
-    fn cli(self) -> Result<i32> {
-        let secret = google_apis::get_app_secret()?;
+    fn cli(self, app: Application) -> Result<i32> {
         let mut account = accounts::Account::default();
-        account.authorize_interactively(&secret)?;
-        let email = account.fetch_email_address(&secret)?;
+        account.authorize_interactively(&app.secret)?;
+        let email = account.fetch_email_address(&app.secret)?;
         println!("Successfully logged in to {}.", email);
-        account.acquire_change_page_token(&secret)?;
+        account.acquire_change_page_token(&app.secret)?;
         Ok(0)
     }
 }
@@ -118,15 +116,14 @@ pub struct DriverOpenOptions {
 }
 
 impl DriverOpenOptions {
-    fn cli(self) -> Result<i32> {
+    fn cli(self, app: Application) -> Result<i32> {
         // TODO: synchronize the database if needed, or something
-        let conn = database::get_db_connection()?;
         let pattern = format!("%{}%", self.stem);
 
         use schema::docs::dsl::*;
 
         let results = docs.filter(name.like(&pattern))
-            .load::<database::Doc>(&conn)?;
+            .load::<database::Doc>(&app.conn)?;
 
         let id_to_open = match results.len() {
             0 => {
@@ -164,14 +161,11 @@ impl DriverOpenOptions {
 pub struct DriverSyncOptions {}
 
 impl DriverSyncOptions {
-    fn cli(self) -> Result<i32> {
-        let secret = google_apis::get_app_secret()?;
-        let conn = database::get_db_connection()?;
-
+    fn cli(self, app: Application) -> Result<i32> {
         for maybe_info in accounts::get_accounts()? {
             let (email, mut account) = maybe_info?;
 
-            account.with_drive_hub(&secret, |hub| {
+            account.with_drive_hub(&app.secret, |hub| {
                 // TODO we need to delete old records and stuff!
                 for maybe_file in google_apis::list_files(&hub, |call| call.spaces("drive")) {
                     let file = maybe_file?;
@@ -191,7 +185,7 @@ impl DriverSyncOptions {
 
                     diesel::insert_or_ignore_into(schema::docs::table)
                         .values(&new_doc)
-                        .execute(&conn)?;
+                        .execute(&app.conn)?;
                 }
 
                 Ok(())
@@ -208,9 +202,7 @@ impl DriverSyncOptions {
 pub struct DriverTempOptions {}
 
 impl DriverTempOptions {
-    fn cli(self) -> Result<i32> {
-        let secret = google_apis::get_app_secret()?;
-
+    fn cli(self, app: Application) -> Result<i32> {
         for maybe_info in accounts::get_accounts()? {
             let (email, mut account) = maybe_info?;
 
@@ -218,7 +210,7 @@ impl DriverTempOptions {
                 format_err!("no paging token for {}", email)
             )?;
 
-            let token = account.with_drive_hub(&secret, |hub| {
+            let token = account.with_drive_hub(&app.secret, |hub| {
                 let mut lister = google_apis::list_changes(
                     &hub, &token,
                     |call| call.spaces("drive")
@@ -272,12 +264,14 @@ pub enum DriverCli {
 
 impl DriverCli {
     fn cli(self) -> Result<i32> {
+        let app = Application::initialize()?;
+
         match self {
-            DriverCli::List(opts) => opts.cli(),
-            DriverCli::Login(opts) => opts.cli(),
-            DriverCli::Open(opts) => opts.cli(),
-            DriverCli::Sync(opts) => opts.cli(),
-            DriverCli::Temp(opts) => opts.cli(),
+            DriverCli::List(opts) => opts.cli(app),
+            DriverCli::Login(opts) => opts.cli(app),
+            DriverCli::Open(opts) => opts.cli(app),
+            DriverCli::Sync(opts) => opts.cli(app),
+            DriverCli::Temp(opts) => opts.cli(app),
         }
     }
 }

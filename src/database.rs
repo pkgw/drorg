@@ -5,12 +5,12 @@
 
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
-use failure::Error;
 
-use super::schema::*;
+use errors::Result;
+use schema::*;
 
 /// Connect to the Sqlite database.
-pub fn get_db_connection() -> Result<SqliteConnection, Error> {
+pub fn get_db_connection() -> Result<SqliteConnection> {
     let p = app_dirs::get_app_dir(app_dirs::AppDataType::UserData, &super::APP_INFO, "db.sqlite")?;
     let as_str = p.to_str().ok_or_else(|| format_err!("cannot express user data path as Unicode"))?;
     Ok(SqliteConnection::establish(&as_str)?)
