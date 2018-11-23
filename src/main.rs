@@ -97,12 +97,30 @@ impl DriverLoginOptions {
     /// We want to allow the user to login to multiple accounts
     /// simultaneously. Therefore we set up the authenticator flow with a null
     /// storage, and then add the resulting token to the disk storage.
-    fn cli(self, app: Application) -> Result<i32> {
+    fn cli(self, mut app: Application) -> Result<i32> {
         let mut account = accounts::Account::default();
+
+        // First we need to get authorization.
         account.authorize_interactively(&app.secret)?;
+
+        // Now, for bookkeeping, we look up the email address associated with
+        // it. We could just have the user specify an identifier, but I went
+        // to the trouble to figure out how to do this right, so ...
         let email = account.fetch_email_address(&app.secret)?;
         println!("Successfully logged in to {}.", email);
+
+        // Initialize our token for checking for changes to the documents. We
+        // do this *before* scanning the complete listing; there's going to be
+        // a race condition either way, but the one that happens with this
+        // ordering seems like it would be more benign.
         account.acquire_change_page_token(&app.secret)?;
+
+        // OK, now actually slurp in the list of documents.
+        println!("Scanning documents ...");
+        app.import_documents(&email, &mut account)?;
+
+        // All done.
+        println!("Done.");
         Ok(0)
     }
 }
@@ -146,47 +164,6 @@ impl DriverOpenOptions {
         };
 
         open_url(url)?;
-        Ok(0)
-    }
-}
-
-
-/// Temp? Fill the database with the current set of remote documents.
-#[derive(Debug, StructOpt)]
-pub struct DriverSyncOptions {}
-
-impl DriverSyncOptions {
-    fn cli(self, app: Application) -> Result<i32> {
-        for maybe_info in accounts::get_accounts()? {
-            let (email, mut account) = maybe_info?;
-
-            account.with_drive_hub(&app.secret, |hub| {
-                // TODO we need to delete old records and stuff!
-                for maybe_file in google_apis::list_files(&hub, |call| call.spaces("drive")) {
-                    let file = maybe_file?;
-                    let name = file.name.as_ref().map_or("???", |s| s);
-                    let id = match file.id.as_ref() {
-                        Some(s) => s,
-                        None => {
-                            eprintln!("got a document without an ID in account {}; ignoring", email);
-                            continue;
-                        }
-                    };
-
-                    let new_doc = database::NewDoc {
-                        id: id,
-                        name: name,
-                    };
-
-                    diesel::insert_or_ignore_into(schema::docs::table)
-                        .values(&new_doc)
-                        .execute(&app.conn)?;
-                }
-
-                Ok(())
-            })?;
-        }
-
         Ok(0)
     }
 }
@@ -248,10 +225,6 @@ pub enum DriverCli {
     /// Open a document in a web browser
     Open(DriverOpenOptions),
 
-    #[structopt(name = "sync")]
-    /// Synchronize the local database with Google Drve
-    Sync(DriverSyncOptions),
-
     #[structopt(name = "temp")]
     /// Temporary dev work
     Temp(DriverTempOptions),
@@ -265,7 +238,6 @@ impl DriverCli {
             DriverCli::List(opts) => opts.cli(app),
             DriverCli::Login(opts) => opts.cli(app),
             DriverCli::Open(opts) => opts.cli(app),
-            DriverCli::Sync(opts) => opts.cli(app),
             DriverCli::Temp(opts) => opts.cli(app),
         }
     }
