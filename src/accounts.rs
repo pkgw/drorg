@@ -151,6 +151,7 @@ impl Account {
     ///
     /// The callback has the signature `FnMut(hub: &Drive) -> Result<T>`. In
     /// the definition here we get to use the elusive `where for` syntax!
+    #[allow(unused)]
     pub fn with_people_hub<T, F>(&mut self, secret: &ApplicationSecret, callback: F) -> Result<T>
         where for<'a> F: FnMut(&'a People<'a>) -> Result<T>
     {
