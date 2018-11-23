@@ -3,6 +3,8 @@
 
 //! The main CLI driver logic.
 
+#![deny(missing_docs)]
+
 extern crate app_dirs;
 #[macro_use] extern crate diesel;
 #[macro_use] extern crate failure;
@@ -243,6 +245,7 @@ impl DriverTempOptions {
 }
 
 
+/// The main StructOpt type for dispatching subcommands.
 #[derive(Debug, StructOpt)]
 #[structopt(name = "driver", about = "Deal with Google Drive.")]
 pub enum DriverCli {

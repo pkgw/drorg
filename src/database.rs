@@ -17,16 +17,32 @@ pub fn get_db_connection() -> Result<SqliteConnection, Error> {
 }
 
 
+/// A document residing on a Google Drive.
 #[derive(Queryable)]
 pub struct Doc {
+    /// The unique identifier of this document.
+    ///
+    /// This value never changes, but does not make any sense to a user.
     pub id: String,
+
+    /// The current name of this document.
+    ///
+    /// This value can change.
     pub name: String,
 }
 
+
+/// Data representing a new document row to insert into the database.
+///
+/// See the documentation for `Doc` for explanations of the fields. This type
+/// is different than Doc in that it contains references to borrowed values
+/// for non-Copy types, rather than owned values.
 #[derive(Insertable)]
 #[table_name="docs"]
 pub struct NewDoc<'a> {
+    /// The unique identifier of this document.
     pub id: &'a str,
+
+    /// The current name of this document.
     pub name: &'a str,
 }
-
