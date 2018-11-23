@@ -5,6 +5,7 @@
 
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
+use google_drive3;
 
 use errors::Result;
 use schema::*;
@@ -63,4 +64,21 @@ pub struct NewDoc<'a> {
 
     /// Whether the user has starred this document.
     pub starred: bool,
+}
+
+impl<'a> NewDoc<'a> {
+    /// Fill in a database record from a file returned by the drive3 API.
+    pub fn from_api_object(file: &'a google_drive3::File) -> Result<NewDoc<'a>> {
+        let id = &file.id.as_ref().ok_or_else(
+            || format_err!("no ID provided with file object")
+        )?;
+        let name = &file.name.as_ref().map_or("???", |s| s);
+        let starred = file.starred.unwrap_or(false);
+
+        Ok(NewDoc {
+            id,
+            name,
+            starred,
+        })
+   }
 }

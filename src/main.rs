@@ -64,11 +64,18 @@ fn open_url<S: AsRef<OsStr>>(url: S) -> Result<()> {
 
 /// Temp? List documents.
 #[derive(Debug, StructOpt)]
-pub struct DriverListOptions {}
+pub struct DriverListOptions {
+    #[structopt(long = "no-sync", help = "Do not attempt to synchronize with the Google servers")]
+    no_sync: bool,
+}
 
 impl DriverListOptions {
-    fn cli(self, app: Application) -> Result<i32> {
+    fn cli(self, mut app: Application) -> Result<i32> {
         use schema::docs::dsl::*;
+
+        if !self.no_sync {
+            app.sync_all_accounts()?;
+        }
 
         for doc in docs.load::<database::Doc>(&app.conn)? {
             let star = if doc.starred { "*" } else { " " };
