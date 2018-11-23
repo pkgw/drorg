@@ -38,7 +38,7 @@ impl Application {
 
     /// Fill the database with records for all of the documents associated
     /// with an account.
-    pub fn import_documents(&mut self, email: &str, account: &mut Account) -> Result<()> {
+    pub fn import_documents(&mut self, account: &mut Account) -> Result<()> {
         account.with_drive_hub(&self.secret, |hub| {
             for maybe_file in google_apis::list_files(&hub, |call| {
                 call.spaces("drive")

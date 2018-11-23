@@ -126,7 +126,7 @@ impl DriverLoginOptions {
 
         // OK, now actually slurp in the list of documents.
         println!("Scanning documents ...");
-        app.import_documents(&email, &mut account)?;
+        app.import_documents(&mut account)?;
 
         // All done.
         println!("Done.");
@@ -191,7 +191,7 @@ impl DriverResyncOptions {
 
         // Redo the initialization rigamarole from the "login" command.
         account.acquire_change_page_token(&app.secret)?;
-        app.import_documents(&self.email, &mut account)?;
+        app.import_documents(&mut account)?;
 
         Ok(0)
     }
