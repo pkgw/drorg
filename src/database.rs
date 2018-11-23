@@ -31,6 +31,18 @@ pub struct Doc {
     pub name: String,
 }
 
+impl Doc {
+    /// Get a URL that can be used to open this document in a browser.
+    pub fn open_url(&self) -> String {
+        use url::percent_encoding::{utf8_percent_encode, QUERY_ENCODE_SET};
+
+        let mut url = hyper::Url::parse("https://drive.google.com/open").unwrap();
+        let q = utf8_percent_encode(&self.id, QUERY_ENCODE_SET);
+        url.set_query(Some(&format!("id={}", q)));
+        url.into_string()
+    }
+}
+
 
 /// Data representing a new document row to insert into the database.
 ///

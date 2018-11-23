@@ -125,13 +125,13 @@ impl DriverOpenOptions {
         let results = docs.filter(name.like(&pattern))
             .load::<database::Doc>(&app.conn)?;
 
-        let id_to_open = match results.len() {
+        let url = match results.len() {
             0 => {
                 println!("No known document names matched the pattern \"{}\"", self.stem);
                 return Ok(1);
             },
 
-            1 => &results[0].id,
+            1 => results[0].open_url(),
 
             _n => {
                 println!("Multiple documents matched the pattern \"{}\":", self.stem);
@@ -145,12 +145,7 @@ impl DriverOpenOptions {
             }
         };
 
-        let mut url = hyper::Url::parse("https://drive.google.com/open").unwrap();
-        use url::percent_encoding::{utf8_percent_encode, QUERY_ENCODE_SET};
-        let q = utf8_percent_encode(id_to_open, QUERY_ENCODE_SET).to_string();
-        url.set_query(Some(&format!("id={}", q)));
-
-        open_url(url.as_str())?;
+        open_url(url)?;
         Ok(0)
     }
 }
