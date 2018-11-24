@@ -42,7 +42,7 @@ impl Application {
         account.with_drive_hub(&self.secret, |hub| {
             for maybe_file in google_apis::list_files(&hub, |call| {
                 call.spaces("drive")
-                    .param("fields", "files(id,name,starred,trashed),nextPageToken")
+                    .param("fields", "files(id,modifiedTime,name,starred,trashed),nextPageToken")
             }) {
                 let file = maybe_file?;
                 let new_doc = database::NewDoc::from_api_object(&file)?;
@@ -70,7 +70,8 @@ impl Application {
                     .include_team_drive_items(true)
                     .include_removed(true)
                     .include_corpus_removals(true)
-                    .param("fields", "changes(file(id,name,starred,trashed),fileId,removed),newStartPageToken,nextPageToken")
+                    .param("fields", "changes(file(id,modifiedTime,name,starred,trashed),\
+                                      fileId,removed),newStartPageToken,nextPageToken")
             );
 
             for maybe_change in lister.iter() {

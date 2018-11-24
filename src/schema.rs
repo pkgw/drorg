@@ -4,5 +4,6 @@ table! {
         name -> Text,
         starred -> Bool,
         trashed -> Bool,
+        modified_time -> Timestamp,
     }
 }

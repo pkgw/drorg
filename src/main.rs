@@ -6,6 +6,7 @@
 #![deny(missing_docs)]
 
 extern crate app_dirs;
+extern crate chrono;
 #[macro_use] extern crate diesel;
 #[macro_use] extern crate failure;
 extern crate google_drive3;
@@ -17,6 +18,7 @@ extern crate serde;
 extern crate serde_json;
 extern crate structopt;
 extern crate tempfile;
+extern crate timeago;
 extern crate url;
 extern crate yup_oauth2;
 
@@ -71,16 +73,27 @@ pub struct DriverListOptions {
 
 impl DriverListOptions {
     fn cli(self, mut app: Application) -> Result<i32> {
+        use chrono::Utc;
         use schema::docs::dsl::*;
 
         if !self.no_sync {
             app.sync_all_accounts()?;
         }
 
+        let now = Utc::now();
+
         for doc in docs.load::<database::Doc>(&app.conn)? {
             let star = if doc.starred { "*" } else { " " };
             let trash = if doc.trashed { "T" } else { " " };
-            println!("   {}{} {} ({})", star, trash, doc.name, doc.id);
+
+            let ago = now.signed_duration_since(doc.utc_mod_time());
+            let ago = ago.to_std().map(
+                |stddur| timeago::Formatter::new().convert(stddur)
+            ).unwrap_or_else(
+                |_err| "[future?]".to_owned()
+            );
+
+            println!("   {}{} {} ({})  {}", star, trash, doc.name, doc.id, ago);
         }
 
         Ok(0)

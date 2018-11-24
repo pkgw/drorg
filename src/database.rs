@@ -3,6 +3,7 @@
 
 //! The local database of document information.
 
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use google_drive3;
@@ -36,9 +37,20 @@ pub struct Doc {
 
     /// Whether this document is in the trash.
     pub trashed: bool,
+
+    /// The last time this document was modified, without timezone information.
+    ///
+    /// Prefer `utc_mod_time()` to get this information with correct timezone
+    /// tagging. (Namely, that this value is UTC.)
+    pub modified_time: NaiveDateTime,
 }
 
 impl Doc {
+    /// Retrieve the file's modification time with correct timezone information.
+    pub fn utc_mod_time(&self) -> DateTime<Utc> {
+        DateTime::from_utc(self.modified_time, Utc)
+    }
+
     /// Get a URL that can be used to open this document in a browser.
     pub fn open_url(&self) -> String {
         use url::percent_encoding::{utf8_percent_encode, QUERY_ENCODE_SET};
@@ -70,6 +82,9 @@ pub struct NewDoc<'a> {
 
     /// Whether this document is in the trash.
     pub trashed: bool,
+
+    /// The last time this document was modified.
+    pub modified_time: NaiveDateTime,
 }
 
 impl<'a> NewDoc<'a> {
@@ -81,12 +96,18 @@ impl<'a> NewDoc<'a> {
         let name = &file.name.as_ref().map_or("???", |s| s);
         let starred = file.starred.unwrap_or(false);
         let trashed = file.trashed.unwrap_or(false);
+        let modified_time = file.modified_time
+            .as_ref()
+            .ok_or_else(|| format_err!("no modifiedTime provided with file object"))
+            .and_then(|text| Ok(DateTime::parse_from_rfc3339(&text)?))?
+            .naive_utc();
 
         Ok(NewDoc {
             id,
             name,
             starred,
             trashed,
+            modified_time,
         })
    }
 }
