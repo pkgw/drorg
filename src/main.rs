@@ -41,7 +41,7 @@ use errors::Result;
 
 /// Information used to find out app-specific config files, e.g. the
 /// application secret.
-const APP_INFO: app_dirs::AppInfo = app_dirs::AppInfo { name: "goodriver", author: "PKGW" };
+const APP_INFO: app_dirs::AppInfo = app_dirs::AppInfo { name: "drorg", author: "drorg" };
 
 
 /// Open a URL in a browser.
@@ -66,12 +66,12 @@ fn open_url<S: AsRef<OsStr>>(url: S) -> Result<()> {
 
 /// Temp? List documents.
 #[derive(Debug, StructOpt)]
-pub struct DriverListOptions {
+pub struct DrorgListOptions {
     #[structopt(long = "no-sync", help = "Do not attempt to synchronize with the Google servers")]
     no_sync: bool,
 }
 
-impl DriverListOptions {
+impl DrorgListOptions {
     fn cli(self, mut app: Application) -> Result<i32> {
         use chrono::Utc;
         use schema::docs::dsl::*;
@@ -109,9 +109,9 @@ impl DriverListOptions {
 /// UI perspective to just call it "email" and let the user figure out for
 /// themselves that they can give it some other value if they feel like it.
 #[derive(Debug, StructOpt)]
-pub struct DriverLoginOptions {}
+pub struct DrorgLoginOptions {}
 
-impl DriverLoginOptions {
+impl DrorgLoginOptions {
     /// The auth flow here will print out a message on the console, asking the
     /// user to go to a URL, following instructions, and paste a string back
     /// into the client.
@@ -150,12 +150,12 @@ impl DriverLoginOptions {
 
 /// Open a document.
 #[derive(Debug, StructOpt)]
-pub struct DriverOpenOptions {
+pub struct DrorgOpenOptions {
     #[structopt(help = "A piece of the document name")]
     stem: String,
 }
 
-impl DriverOpenOptions {
+impl DrorgOpenOptions {
     fn cli(self, app: Application) -> Result<i32> {
         // TODO: synchronize the database if needed, or something
         let pattern = format!("%{}%", self.stem);
@@ -193,9 +193,9 @@ impl DriverOpenOptions {
 
 /// Resynchronize with an account.
 #[derive(Debug, StructOpt)]
-pub struct DriverResyncOptions {}
+pub struct DrorgResyncOptions {}
 
-impl DriverResyncOptions {
+impl DrorgResyncOptions {
     fn cli(self, mut app: Application) -> Result<i32> {
         for maybe_info in accounts::get_accounts()? {
             let (email, mut account) = maybe_info?;
@@ -213,9 +213,9 @@ impl DriverResyncOptions {
 
 /// Temp debugging
 #[derive(Debug, StructOpt)]
-pub struct DriverTempOptions {}
+pub struct DrorgTempOptions {}
 
-impl DriverTempOptions {
+impl DrorgTempOptions {
     fn cli(self, app: Application) -> Result<i32> {
         for maybe_info in accounts::get_accounts()? {
             let (email, mut account) = maybe_info?;
@@ -253,52 +253,52 @@ impl DriverTempOptions {
 
 /// The main StructOpt type for dispatching subcommands.
 #[derive(Debug, StructOpt)]
-#[structopt(name = "driver", about = "Deal with Google Drive.")]
-pub enum DriverCli {
+#[structopt(name = "drorg", about = "Organize documents on Google Drive.")]
+pub enum DrorgCli {
     #[structopt(name = "list")]
     /// List documents
-    List(DriverListOptions),
+    List(DrorgListOptions),
 
     #[structopt(name = "login")]
     /// Add a Google account to be monitored
-    Login(DriverLoginOptions),
+    Login(DrorgLoginOptions),
 
     #[structopt(name = "open")]
     /// Open a document in a web browser
-    Open(DriverOpenOptions),
+    Open(DrorgOpenOptions),
 
     #[structopt(name = "resync")]
     /// Re-synchronize with an account
-    Resync(DriverResyncOptions),
+    Resync(DrorgResyncOptions),
 
     #[structopt(name = "temp")]
     /// Temporary dev work
-    Temp(DriverTempOptions),
+    Temp(DrorgTempOptions),
 }
 
-impl DriverCli {
+impl DrorgCli {
     fn cli(self) -> Result<i32> {
         let app = Application::initialize()?;
 
         match self {
-            DriverCli::List(opts) => opts.cli(app),
-            DriverCli::Login(opts) => opts.cli(app),
-            DriverCli::Open(opts) => opts.cli(app),
-            DriverCli::Resync(opts) => opts.cli(app),
-            DriverCli::Temp(opts) => opts.cli(app),
+            DrorgCli::List(opts) => opts.cli(app),
+            DrorgCli::Login(opts) => opts.cli(app),
+            DrorgCli::Open(opts) => opts.cli(app),
+            DrorgCli::Resync(opts) => opts.cli(app),
+            DrorgCli::Temp(opts) => opts.cli(app),
         }
     }
 }
 
 
 fn main() {
-    let program = DriverCli::from_args();
+    let program = DrorgCli::from_args();
 
     process::exit(match program.cli() {
         Ok(code) => code,
 
         Err(e) => {
-            eprintln!("fatal error in driver");
+            eprintln!("fatal error in drorg");
             for cause in e.iter_chain() {
                 eprintln!("  caused by: {}", cause);
             }

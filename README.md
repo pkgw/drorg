@@ -1,6 +1,6 @@
-# driver
+# drorg
 
-Deal with Google Drive.
+Organize documents on Google Drive efficiently.
 
 This tool is only for highly motivated users at the moment. In particular, you
 can’t use it without registering a Google Cloud Application for OAuth2

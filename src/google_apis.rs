@@ -41,7 +41,7 @@ pub type People<'a> = google_people1::PeopleService<Client, Authenticator<'a>>;
 /// TODO: can we automate the creation and retrieval of this file? That would
 /// be cool but not something to spend time on right now.
 ///
-/// On Linux the desired filepath is `~/.config/goodriver/client_id.json`.
+/// On Linux the desired filepath is `~/.config/drorg/client_id.json`.
 pub fn get_app_secret() -> Result<ApplicationSecret> {
     let p = app_dirs::get_app_dir(app_dirs::AppDataType::UserConfig, &::APP_INFO, "client_id.json")?;
     let f = fs::File::open(p)?;

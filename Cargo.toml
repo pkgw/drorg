@@ -1,11 +1,11 @@
 [package]
-name = "driver"
+name = "drorg"
 version = "0.1.0"
 authors = ["Peter Williams <peter@newton.cx>"]
-description = "Manage Google Drive documents efficiently."
-homepage = "https://github.com/pkgw/driver/"
-documentation = "https://docs.rs/crate/driver"
-repository = "https://github.com/pkgw/driver/"
+description = "Organize Google Drive documents efficiently."
+homepage = "https://github.com/pkgw/drorg/"
+documentation = "https://docs.rs/crate/drorg"
+repository = "https://github.com/pkgw/drorg/"
 readme = "README.md"
 license = "MIT"
 
