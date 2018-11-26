@@ -51,7 +51,7 @@ const APP_INFO: app_dirs::AppInfo = app_dirs::AppInfo { name: "drorg", author: "
 fn open_url<S: AsRef<OsStr>>(url: S) -> Result<()> {
     use std::process::Command;
 
-    let status = Command::new("firefox")
+    let status = Command::new("firefox-wayland")
         .args(&["-P", "google", "--new-window"])
         .arg(url)
         .status()?;
