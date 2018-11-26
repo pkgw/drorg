@@ -1,0 +1,30 @@
+# Copyright 2018 the drorg authors
+# Licensed under the MIT License
+
+language: rust
+
+cache: cargo
+
+matrix:
+  include:
+    - os: linux
+      sudo: required
+      dist: xenial
+      rust: stable
+    - os: linux
+      sudo: required
+      dist: xenial
+      rust: beta
+    - os: linux
+      sudo: required
+      dist: xenial
+      rust: nightly
+    - os: osx
+      rust: stable
+  allow_failures:
+    - rust: nightly
+
+script:
+  - |
+    cargo build --verbose &&
+    cargo test
