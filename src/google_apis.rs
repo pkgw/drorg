@@ -115,6 +115,7 @@ macro_rules! impl_call_builder_ext {
 
 impl_call_builder_ext!(google_drive3::ChangeGetStartPageTokenCall<'a, C, A>);
 impl_call_builder_ext!(google_drive3::ChangeListCall<'a, C, A>);
+impl_call_builder_ext!(google_drive3::FileGetCall<'a, C, A>);
 impl_call_builder_ext!(google_drive3::FileListCall<'a, C, A>);
 impl_call_builder_ext!(google_people1::PeopleGetCall<'a, C, A>);
 
@@ -150,6 +151,28 @@ pub fn authorize_interactively<T: TokenStorage>(secret: &ApplicationSecret, stor
 ///
 /// The main reason for providing this is to make it easier to write the
 /// signature of the `list_files` call.
+pub type FileGetCall<'a, 'b> = google_drive3::FileGetCall<'a, Client, Authenticator<'b>>;
+
+/// Get information about a specific file.
+///
+/// The id "root" corresponds to a special file that does not appear in the
+/// results of the `list_files` API call.
+pub fn get_file<'a, 'b, F>(hub: &'b Drive<'a>, id: &str, mut f: F) -> Result<google_drive3::File>
+    where 'b: 'a,
+          F: 'a + FnMut(FileGetCall<'a, 'b>) -> FileGetCall<'a, 'b>
+{
+    let call = hub.files().get(id);
+    let call = f(call);
+    let call = call.default_scope();
+    let (_resp, file) = call.doit().adapt()?;
+    Ok(file)
+}
+
+
+/// An app-specific type for the FileListCall type from `google_drive3`.
+///
+/// The main reason for providing this is to make it easier to write the
+/// signature of the `list_files` call.
 pub type FileListCall<'a, 'b> = google_drive3::FileListCall<'a, Client, Authenticator<'b>>;
 
 /// Return an iterator over all files associated with this "hub".
@@ -160,6 +183,10 @@ pub type FileListCall<'a, 'b> = google_drive3::FileListCall<'a, Client, Authenti
 /// think? Based on the examples I've seen, it seems that you might need to
 /// use the same query details when fetching subsequent pages in a multi-page
 /// query.)
+///
+/// Note that this API does not return an entry for the special "root" file
+/// associated with each Google Drive account. Information that file can be
+/// obtained by passing the special ID "root" to `get_file()`.
 pub fn list_files<'a, 'b, F>(hub: &'b Drive<'a>, f: F) -> impl Iterator<Item = Result<google_drive3::File>> + 'a
     where 'b: 'a,
           F: 'a + FnMut(FileListCall<'a, 'b>) -> FileListCall<'a, 'b>
