@@ -1,0 +1,3 @@
+ALTER TABLE docs ADD COLUMN mime_type TEXT
+  NOT NULL
+  DEFAULT '';
