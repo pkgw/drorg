@@ -85,6 +85,7 @@ impl DrorgListOptions {
         for doc in docs.load::<database::Doc>(&app.conn)? {
             let star = if doc.starred { "*" } else { " " };
             let trash = if doc.trashed { "T" } else { " " };
+            let is_folder = if doc.is_folder() { "F" } else { " " };
 
             let ago = now.signed_duration_since(doc.utc_mod_time());
             let ago = ago.to_std().map(
@@ -93,7 +94,7 @@ impl DrorgListOptions {
                 |_err| "[future?]".to_owned()
             );
 
-            println!("   {}{} {} ({})  {}", star, trash, doc.name, doc.id, ago);
+            println!("   {}{}{} {} ({})  {}", star, trash, is_folder, doc.name, doc.id, ago);
         }
 
         Ok(0)

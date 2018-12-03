@@ -32,6 +32,13 @@ pub struct Doc {
     /// This value can change.
     pub name: String,
 
+    /// The MIME type of this document.
+    ///
+    /// Special values include:
+    ///
+    /// - `application/vnd.google-apps.folder`, which indicates a folder
+    pub mime_type: String,
+
     /// Whether the user has starred this document.
     pub starred: bool,
 
@@ -60,6 +67,11 @@ impl Doc {
         url.set_query(Some(&format!("id={}", q)));
         url.into_string()
     }
+
+    /// Return true if this document is a folder.
+    pub fn is_folder(&self) -> bool {
+        self.mime_type == "application/vnd.google-apps.folder"
+    }
 }
 
 
@@ -76,6 +88,9 @@ pub struct NewDoc<'a> {
 
     /// The current name of this document.
     pub name: &'a str,
+
+    /// The MIME type of this document.
+    pub mime_type: &'a str,
 
     /// Whether the user has starred this document.
     pub starred: bool,
@@ -94,6 +109,7 @@ impl<'a> NewDoc<'a> {
             || format_err!("no ID provided with file object")
         )?;
         let name = &file.name.as_ref().map_or("???", |s| s);
+        let mime_type = &file.mime_type.as_ref().map_or("", |s| s);
         let starred = file.starred.unwrap_or(false);
         let trashed = file.trashed.unwrap_or(false);
         let modified_time = file.modified_time
@@ -105,6 +121,7 @@ impl<'a> NewDoc<'a> {
         Ok(NewDoc {
             id,
             name,
+            mime_type,
             starred,
             trashed,
             modified_time,
