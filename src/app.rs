@@ -39,7 +39,23 @@ impl Application {
     /// Fill the database with records for all of the documents associated
     /// with an account.
     pub fn import_documents(&mut self, account: &mut Account) -> Result<()> {
-        account.with_drive_hub(&self.secret, |hub| {
+        let root_id: String = account.with_drive_hub(&self.secret, |hub| {
+            // This redundant codepath feels kind of ugly, but so far it seems
+            // like the least-bad way to make sure we get info about the root
+            // document.
+            let root_id = {
+                let file = google_apis::get_file(&hub, "root", |call| {
+                    call.param("fields", "id,mimeType,modifiedTime,name,parents,\
+                                          starred,trashed")
+                })?;
+                let new_doc = database::NewDoc::from_api_object(&file)?;
+                diesel::replace_into(schema::docs::table)
+                    .values(&new_doc)
+                    .execute(&self.conn)?;
+
+                new_doc.id.to_owned()
+            };
+
             for maybe_file in google_apis::list_files(&hub, |call| {
                 call.spaces("drive")
                     .param("fields", "files(id,mimeType,modifiedTime,name,parents,\
@@ -65,8 +81,12 @@ impl Application {
                 }
             }
 
-            Ok(())
-        })
+            Ok(root_id)
+        })?;
+
+        account.data.root_folder_id = root_id;
+        account.save_to_json()?;
+        Ok(())
     }
 
 

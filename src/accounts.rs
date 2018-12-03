@@ -24,6 +24,9 @@ pub struct AccountData {
 
     /// A token used to ask the API about recent changes.
     pub change_page_token: Option<String>,
+
+    /// The identifier of this account's root folder.
+    pub root_folder_id: String,
 }
 
 
