@@ -128,3 +128,37 @@ impl<'a> NewDoc<'a> {
         })
    }
 }
+
+
+/// A parent-child relationship link between two documents.
+#[derive(Queryable)]
+pub struct Link {
+    /// The document ID of the parent.
+    pub parent_id: String,
+
+    /// The document ID of the child.
+    pub child_id: String,
+}
+
+
+/// Data representing a new link row to insert into the database.
+///
+/// See the documentation for `Link` for explanations of the fields. This type
+/// is different than Link in that it contains references to borrowed values
+/// for non-Copy types, rather than owned values.
+#[derive(Insertable)]
+#[table_name="links"]
+pub struct NewLink<'a> {
+    /// The document ID of the parent.
+    pub parent_id: &'a str,
+
+    /// The document ID of the child.
+    pub child_id: &'a str,
+}
+
+impl<'a> NewLink<'a> {
+    /// Create a new linkage record.
+    pub fn new(parent_id: &'a str, child_id: &'a str) -> NewLink<'a> {
+        NewLink { parent_id, child_id }
+    }
+}

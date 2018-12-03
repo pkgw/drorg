@@ -42,13 +42,27 @@ impl Application {
         account.with_drive_hub(&self.secret, |hub| {
             for maybe_file in google_apis::list_files(&hub, |call| {
                 call.spaces("drive")
-                    .param("fields", "files(id,mimeType,modifiedTime,name,starred,trashed),nextPageToken")
+                    .param("fields", "files(id,mimeType,modifiedTime,name,parents,\
+                                      starred,trashed),nextPageToken")
             }) {
                 let file = maybe_file?;
                 let new_doc = database::NewDoc::from_api_object(&file)?;
                 diesel::replace_into(schema::docs::table)
                     .values(&new_doc)
                     .execute(&self.conn)?;
+
+                // Note that we make no effort to delete any parent-child
+                // links in the database that don't correspond to items
+                // returned here:
+
+                if let Some(parents) = file.parents.as_ref() {
+                    for pid in parents {
+                        let new_link = database::NewLink::new(pid, &new_doc.id);
+                        diesel::replace_into(schema::links::table)
+                            .values(&new_link)
+                            .execute(&self.conn)?;
+                    }
+                }
             }
 
             Ok(())
@@ -70,12 +84,14 @@ impl Application {
                     .include_team_drive_items(true)
                     .include_removed(true)
                     .include_corpus_removals(true)
-                    .param("fields", "changes(file(id,mimeType,modifiedTime,name,starred,trashed),\
-                                      fileId,removed),newStartPageToken,nextPageToken")
+                    .param("fields", "changes(file(id,mimeType,modifiedTime,name,parents,\
+                                      starred,trashed),fileId,removed),newStartPageToken,\
+                                      nextPageToken")
             );
 
             for maybe_change in lister.iter() {
                 use schema::docs::dsl::*;
+                use schema::links::dsl::*;
 
                 let change = maybe_change?;
 
@@ -90,6 +106,12 @@ impl Application {
                     // action. The user needs to either "Delete forever" the
                     // document from their Trash; or I think this can happen
                     // if they lose access to the document.
+
+                    diesel::delete(links.filter(parent_id.eq(file_id)))
+                        .execute(&self.conn)?;
+                    diesel::delete(links.filter(child_id.eq(file_id)))
+                        .execute(&self.conn)?;
+
                     diesel::delete(docs.filter(id.eq(file_id)))
                         .execute(&self.conn)?;
                 } else {
@@ -100,6 +122,20 @@ impl Application {
                     diesel::replace_into(schema::docs::table)
                         .values(&new_doc)
                         .execute(&self.conn)?;
+
+                    // Refresh the parentage information.
+
+                    diesel::delete(links.filter(child_id.eq(file_id)))
+                        .execute(&self.conn)?;
+
+                    if let Some(parents) = file.parents.as_ref() {
+                        for pid in parents {
+                            let new_link = database::NewLink::new(pid, file_id);
+                            diesel::replace_into(schema::links::table)
+                                .values(&new_link)
+                                .execute(&self.conn)?;
+                        }
+                    }
                 }
             }
 

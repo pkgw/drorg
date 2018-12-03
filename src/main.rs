@@ -201,6 +201,10 @@ impl DrorgResyncOptions {
         for maybe_info in accounts::get_accounts()? {
             let (email, mut account) = maybe_info?;
 
+            // TODO: delete all links involving documents from this account.
+            // To be safest, perhaps we should destroy all database rows
+            // associated with this account?
+
             // Redo the initialization rigamarole from the "login" command.
             println!("Re-initializing {} ...", email);
             account.acquire_change_page_token(&app.secret)?;
