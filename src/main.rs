@@ -13,6 +13,7 @@ extern crate google_drive3;
 extern crate google_people1;
 extern crate hyper;
 extern crate hyper_native_tls;
+extern crate petgraph;
 extern crate serde;
 #[macro_use] extern crate serde_derive;
 extern crate serde_json;
@@ -60,6 +61,74 @@ fn open_url<S: AsRef<OsStr>>(url: S) -> Result<()> {
         Ok(())
     } else {
         Err(format_err!("browser command exited with an error code"))
+    }
+}
+
+
+/// Show detailed information about one or more documents.
+#[derive(Debug, StructOpt)]
+pub struct DrorgInfoOptions {
+    #[structopt(long = "no-sync", help = "Do not attempt to synchronize with the Google servers")]
+    no_sync: bool,
+
+    #[structopt(help = "A document name, or fragment thereof")]
+    stem: String,
+}
+
+impl DrorgInfoOptions {
+    fn cli(self, mut app: Application) -> Result<i32> {
+        use schema::docs::dsl::*;
+
+        if !self.no_sync {
+            app.sync_all_accounts()?;
+        }
+
+        let linkages = app.load_linkage_table(true)?;
+
+        let pattern = format!("%{}%", self.stem);
+        let results = docs.filter(name.like(&pattern))
+            .load::<database::Doc>(&app.conn)?;
+        let mut first = true;
+
+        for doc in results {
+            if first {
+                first = false;
+            } else {
+                println!("");
+            }
+
+            println!("Name:      {}", doc.name);
+            println!("MIME-type: {}", doc.mime_type);
+            println!("Modified:  {}", doc.utc_mod_time().to_rfc3339());
+            println!("ID:        {}", doc.id);
+            println!("Starred?:  {}", if doc.starred { "yes" } else { "no" });
+            println!("Trashed?:  {}", if doc.trashed { "yes" } else { "no" });
+
+            let paths: Vec<_> = linkages.find_parent_paths(&doc.id).iter().map(|id_path| {
+                // This is not efficient, and it's panicky, but meh.
+                let names: Vec<_> = id_path.iter().map(|docid| {
+                    let elem = docs.filter(id.eq(&docid))
+                        .load::<database::Doc>(&app.conn).unwrap();
+                    assert_eq!(elem.len(), 1);
+                    elem[0].name.clone()
+                }).collect();
+
+                names.join(" > ")
+            }).collect();
+
+            match paths.len() {
+                0 => println!("Path:      [none -- root folder?]"),
+                1 => println!("Path:      {}", paths[0]),
+                _n => {
+                    println!("Paths::");
+                    for path in paths {
+                        println!("    {}", path);
+                    }
+                }
+            }
+        }
+
+        Ok(0)
     }
 }
 
@@ -216,50 +285,14 @@ impl DrorgResyncOptions {
 }
 
 
-/// Temp debugging
-#[derive(Debug, StructOpt)]
-pub struct DrorgTempOptions {}
-
-impl DrorgTempOptions {
-    fn cli(self, app: Application) -> Result<i32> {
-        for maybe_info in accounts::get_accounts()? {
-            let (email, mut account) = maybe_info?;
-
-            let token = account.data.change_page_token.take().ok_or(
-                format_err!("no paging token for {}", email)
-            )?;
-
-            let token = account.with_drive_hub(&app.secret, |hub| {
-                let mut lister = google_apis::list_changes(
-                    &hub, &token,
-                    |call| call.spaces("drive")
-                        .supports_team_drives(true)
-                        .include_team_drive_items(true)
-                        .include_removed(true)
-                        .include_corpus_removals(true)
-                );
-
-                for maybe_change in lister.iter() {
-                    let change = maybe_change?;
-                    println!("{:?}", change);
-                }
-
-                Ok(lister.into_change_page_token())
-            })?;
-
-            account.data.change_page_token = Some(token);
-            account.save_to_json()?;
-        }
-
-        Ok(0)
-    }
-}
-
-
 /// The main StructOpt type for dispatching subcommands.
 #[derive(Debug, StructOpt)]
 #[structopt(name = "drorg", about = "Organize documents on Google Drive.")]
 pub enum DrorgCli {
+    #[structopt(name = "info")]
+    /// Show detailed information about one or more documents
+    Info(DrorgInfoOptions),
+
     #[structopt(name = "list")]
     /// List documents
     List(DrorgListOptions),
@@ -275,10 +308,6 @@ pub enum DrorgCli {
     #[structopt(name = "resync")]
     /// Re-synchronize with an account
     Resync(DrorgResyncOptions),
-
-    #[structopt(name = "temp")]
-    /// Temporary dev work
-    Temp(DrorgTempOptions),
 }
 
 impl DrorgCli {
@@ -286,11 +315,11 @@ impl DrorgCli {
         let app = Application::initialize()?;
 
         match self {
+            DrorgCli::Info(opts) => opts.cli(app),
             DrorgCli::List(opts) => opts.cli(app),
             DrorgCli::Login(opts) => opts.cli(app),
             DrorgCli::Open(opts) => opts.cli(app),
             DrorgCli::Resync(opts) => opts.cli(app),
-            DrorgCli::Temp(opts) => opts.cli(app),
         }
     }
 }
