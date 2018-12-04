@@ -32,13 +32,6 @@ pub struct Doc {
     /// This value can change.
     pub name: String,
 
-    /// The MIME type of this document.
-    ///
-    /// Special values include:
-    ///
-    /// - `application/vnd.google-apps.folder`, which indicates a folder
-    pub mime_type: String,
-
     /// Whether the user has starred this document.
     pub starred: bool,
 
@@ -50,6 +43,13 @@ pub struct Doc {
     /// Prefer `utc_mod_time()` to get this information with correct timezone
     /// tagging. (Namely, that this value is UTC.)
     pub modified_time: NaiveDateTime,
+
+    /// The MIME type of this document.
+    ///
+    /// Special values include:
+    ///
+    /// - `application/vnd.google-apps.folder`, which indicates a folder
+    pub mime_type: String,
 }
 
 impl Doc {
