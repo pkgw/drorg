@@ -5,6 +5,8 @@
 
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
+use petgraph::prelude::*;
+use std::collections::HashMap;
 use yup_oauth2::ApplicationSecret;
 
 use accounts::{self, Account};
@@ -176,5 +178,154 @@ impl Application {
         }
 
         Ok(())
+    }
+}
+
+
+/// Data about inter-document linkages.
+///
+/// We have a database table that can store the inter-document linkage
+/// information, but I'm pretty sure that for Real Computations it quickly
+/// becomes very unhealthy to do them using the database. So instead, when
+/// asked we construct an in-memory `petgraph` graph from the database
+/// contents.
+pub struct LinkageTable {
+    graph: petgraph::Graph<String, (), Directed, u32>,
+    nodes: HashMap<String, NodeIndex<u32>>
+}
+
+impl Application {
+    /// Load the table of inter-document linkages.
+    ///
+    /// The underlying graph is directed. If `transpose` is false, links will
+    /// point from parents to children. If true, links will point from
+    /// children to parents.
+    pub fn load_linkage_table(&self, transpose: bool) -> Result<LinkageTable> {
+        use schema::links::dsl::*;
+
+        let mut graph = petgraph::Graph::new();
+        let mut nodes = HashMap::new();
+
+        for link in links.load::<database::Link>(&self.conn)? {
+            let pix = *nodes.entry(link.parent_id.clone()).or_insert_with(
+                || graph.add_node(link.parent_id.clone())
+            );
+            let cix = *nodes.entry(link.child_id.clone()).or_insert_with(
+                || graph.add_node(link.child_id.clone())
+            );
+
+            // The `update_edge()` function prevents duplicate edges from
+            // being formed, but because the database has a primary key
+            // constraint on the pair (parent_id, child_id), it should be
+            // impossible for this function to attempt to create such
+            // duplications.
+
+            if transpose {
+                graph.add_edge(cix, pix, ());
+            } else {
+                graph.add_edge(pix, cix, ());
+            }
+        }
+
+        Ok(LinkageTable { graph, nodes })
+    }
+}
+
+
+impl LinkageTable {
+    /// Given a document ID, find the set of folders that contain it.
+    ///
+    /// This is nontrivial because in Google Drive, the folder structure can
+    /// basically be an arbitrary graph -- including cycles.
+    ///
+    /// The *self* linkage table must have been loaded with *transpose* set to
+    /// true, so that the graph edges point from children to parents.
+    ///
+    /// The return value is a vector of paths, because the document can have
+    /// multiple parents, or one of its parents might have multiple parents.
+    /// Each path is itself a vector of document IDs. The first item in the
+    /// vector is the outermost folder, while the last item is the folder
+    /// containing the target document. The ID of the target document is not
+    /// included in the return values. The path may be an empty vector, if the
+    /// document has been shared with the user's account but not "added to My
+    /// Drive". (And perhaps other reasons?)
+    ///
+    /// The algorithm here is homebrewed because I couldn't find any serious
+    /// discussion of the relevant graph-thory problem. It's basically a
+    /// breadth-first iteration, but it is willing to revisit nodes so long as
+    /// they do not create a cycle within the path being considered.
+    pub fn find_parent_paths(&self, start_id: &str) -> Vec<Vec<String>> {
+        use std::collections::HashSet;
+
+        let roots: HashSet<NodeIndex> = self.graph.externals(Direction::Outgoing).collect();
+
+        let start_ix = match self.nodes.get(start_id) {
+            Some(ix) => *ix,
+            None => return Vec::new()
+        };
+
+        let mut queue = Vec::new();
+        queue.push(start_ix);
+
+        let mut path_data = HashMap::new();
+        path_data.insert(start_ix, None);
+
+        let mut results = Vec::new();
+
+        while queue.len() > 0 {
+            let cur_ix = queue.pop().unwrap();
+
+            if roots.contains(&cur_ix) {
+                // We finished a path!
+                let mut path = Vec::new();
+                let mut ix = cur_ix;
+
+                // Can't do this as a `while let` loop since the bindings shadow
+                loop {
+                    if let Some(new_ix) = path_data.get(&ix).unwrap() {
+                        path.push(self.graph.node_weight(ix).unwrap().clone());
+                        ix = *new_ix;
+                    } else {
+                        break;
+                    }
+                }
+
+                //path.reverse();
+                results.push(path);
+            }
+
+            for next_ix in self.graph.neighbors(cur_ix) {
+                // Already enqueued?
+                if queue.contains(&next_ix) {
+                    continue;
+                }
+
+                // Check for loops.
+                let mut ix = cur_ix;
+
+                let found_loop = loop {
+                    if ix == next_ix {
+                        break true;
+                    }
+
+                    if let Some(new_ix) = path_data.get(&ix).unwrap() {
+                        ix = *new_ix;
+                    } else {
+                        break false;
+                    }
+                };
+
+                if found_loop {
+                    continue;
+                }
+
+                // Looks like we should consider this node.
+
+                path_data.insert(next_ix, Some(cur_ix));
+                queue.push(next_ix);
+            }
+        }
+
+        results
     }
 }
