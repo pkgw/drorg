@@ -285,46 +285,6 @@ impl DrorgResyncOptions {
 }
 
 
-/// Temp debugging
-#[derive(Debug, StructOpt)]
-pub struct DrorgTempOptions {}
-
-impl DrorgTempOptions {
-    fn cli(self, app: Application) -> Result<i32> {
-        for maybe_info in accounts::get_accounts()? {
-            let (email, mut account) = maybe_info?;
-
-            let token = account.data.change_page_token.take().ok_or(
-                format_err!("no paging token for {}", email)
-            )?;
-
-            let token = account.with_drive_hub(&app.secret, |hub| {
-                let mut lister = google_apis::list_changes(
-                    &hub, &token,
-                    |call| call.spaces("drive")
-                        .supports_team_drives(true)
-                        .include_team_drive_items(true)
-                        .include_removed(true)
-                        .include_corpus_removals(true)
-                );
-
-                for maybe_change in lister.iter() {
-                    let change = maybe_change?;
-                    println!("{:?}", change);
-                }
-
-                Ok(lister.into_change_page_token())
-            })?;
-
-            account.data.change_page_token = Some(token);
-            account.save_to_json()?;
-        }
-
-        Ok(0)
-    }
-}
-
-
 /// The main StructOpt type for dispatching subcommands.
 #[derive(Debug, StructOpt)]
 #[structopt(name = "drorg", about = "Organize documents on Google Drive.")]
@@ -348,10 +308,6 @@ pub enum DrorgCli {
     #[structopt(name = "resync")]
     /// Re-synchronize with an account
     Resync(DrorgResyncOptions),
-
-    #[structopt(name = "temp")]
-    /// Temporary dev work
-    Temp(DrorgTempOptions),
 }
 
 impl DrorgCli {
@@ -364,7 +320,6 @@ impl DrorgCli {
             DrorgCli::Login(opts) => opts.cli(app),
             DrorgCli::Open(opts) => opts.cli(app),
             DrorgCli::Resync(opts) => opts.cli(app),
-            DrorgCli::Temp(opts) => opts.cli(app),
         }
     }
 }
