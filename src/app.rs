@@ -41,6 +41,8 @@ impl Application {
     /// Fill the database with records for all of the documents associated
     /// with an account.
     pub fn import_documents(&mut self, account: &mut Account) -> Result<()> {
+        let account_id = account.data.db_id; // borrowck fun
+
         let root_id: String = account.with_drive_hub(&self.secret, |hub| {
             // This redundant codepath feels kind of ugly, but so far it seems
             // like the least-bad way to make sure we get info about the root
@@ -55,6 +57,11 @@ impl Application {
                     .values(&new_doc)
                     .execute(&self.conn)?;
 
+                let new_assn = database::NewAccountAssociation::new(&new_doc.id, account_id);
+                diesel::replace_into(schema::account_assns::table)
+                    .values(&new_assn)
+                    .execute(&self.conn)?;
+
                 new_doc.id.to_owned()
             };
 
@@ -67,6 +74,11 @@ impl Application {
                 let new_doc = database::NewDoc::from_api_object(&file)?;
                 diesel::replace_into(schema::docs::table)
                     .values(&new_doc)
+                    .execute(&self.conn)?;
+
+                let new_assn = database::NewAccountAssociation::new(&new_doc.id, account_id);
+                diesel::replace_into(schema::account_assns::table)
+                    .values(&new_assn)
                     .execute(&self.conn)?;
 
                 // Note that we make no effort to delete any parent-child
@@ -94,6 +106,8 @@ impl Application {
 
     /// Synchronize the database with recent changes in this account.
     pub fn sync_account(&mut self, email: &str, account: &mut Account) -> Result<()> {
+        let account_id = account.data.db_id; // borrowck fun
+
         let token = account.data.change_page_token.take().ok_or(
             format_err!("no change-paging token for {}", email)
         )?;
@@ -134,6 +148,12 @@ impl Application {
                     diesel::delete(links.filter(child_id.eq(file_id)))
                         .execute(&self.conn)?;
 
+                    {
+                        use schema::account_assns::dsl::*;
+                        diesel::delete(account_assns.filter(doc_id.eq(file_id)))
+                            .execute(&self.conn)?;
+                    }
+
                     diesel::delete(docs.filter(id.eq(file_id)))
                         .execute(&self.conn)?;
                 } else {
@@ -143,6 +163,11 @@ impl Application {
                     let new_doc = database::NewDoc::from_api_object(file)?;
                     diesel::replace_into(schema::docs::table)
                         .values(&new_doc)
+                        .execute(&self.conn)?;
+
+                    let new_assn = database::NewAccountAssociation::new(&new_doc.id, account_id);
+                    diesel::replace_into(schema::account_assns::table)
+                        .values(&new_assn)
                         .execute(&self.conn)?;
 
                     // Refresh the parentage information.

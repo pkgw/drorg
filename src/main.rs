@@ -198,8 +198,40 @@ impl DrorgLoginOptions {
         // Now, for bookkeeping, we look up the email address associated with
         // it. We could just have the user specify an identifier, but I went
         // to the trouble to figure out how to do this right, so ...
-        let email = account.fetch_email_address(&app.secret)?;
-        println!("Successfully logged in to {}.", email);
+        let email_addr = account.fetch_email_address(&app.secret)?;
+        println!("Successfully logged in to {}.", email_addr);
+
+        // We might need to add this account to the database. To have sensible
+        // foreign key relations, the email address is not the primary key of
+        // the accounts table, so we need to see whether there's already an
+        // existing row for this account (which could happen if the user
+        // re-logs-in, etc.) If we add a new row, we have to do this awkward
+        // bit where we insert and then immediately query for the row we just
+        // added (cf https://github.com/diesel-rs/diesel/issues/771 ).
+        {
+            use diesel::prelude::*;
+            use schema::accounts::dsl::*;
+
+            let maybe_row = accounts.filter(email.eq(&email_addr))
+                .first::<database::Account>(&app.conn)
+                .optional()?;
+
+            let row_id = if let Some(row) = maybe_row {
+                row.id
+            } else {
+                let new_account = database::NewAccount::new(&email_addr);
+                diesel::replace_into(accounts)
+                    .values(&new_account)
+                    .execute(&app.conn)?;
+
+                let row = accounts.filter(email.eq(&email_addr))
+                    .first::<database::Account>(&app.conn)?;
+                row.id
+            };
+
+            account.data.db_id = row_id;
+            // JSON will be rewritten in acquire_change_page_token below.
+        }
 
         // Initialize our token for checking for changes to the documents. We
         // do this *before* scanning the complete listing; there's going to be
