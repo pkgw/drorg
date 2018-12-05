@@ -146,6 +146,8 @@ impl DrorgInfoOptions {
                     }
                 }
             }
+
+            println!("Open-URL:  {}", doc.open_url());
         }
 
         Ok(0)
