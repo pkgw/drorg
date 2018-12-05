@@ -4,6 +4,7 @@
 //! The main CLI driver logic.
 
 #![deny(missing_docs)]
+#![allow(proc_macro_derive_resolution_fallback)]
 
 extern crate app_dirs;
 extern crate chrono;
