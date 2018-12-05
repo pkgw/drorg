@@ -109,9 +109,8 @@ impl DrorgInfoOptions {
                 // This is not efficient, and it's panicky, but meh.
                 let names: Vec<_> = id_path.iter().map(|docid| {
                     let elem = docs.filter(id.eq(&docid))
-                        .load::<database::Doc>(&app.conn).unwrap();
-                    assert_eq!(elem.len(), 1);
-                    elem[0].name.clone()
+                        .first::<database::Doc>(&app.conn).unwrap();
+                    elem.name.clone()
                 }).collect();
 
                 names.join(" > ")
