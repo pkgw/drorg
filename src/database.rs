@@ -25,7 +25,8 @@ pub fn get_db_connection() -> Result<SqliteConnection> {
 /// table to be able to associate documents with accounts via integers rather
 /// than strings. I'm not sure if this actually helps but an email address per
 /// doc seems like a bit much. Premature optimization never hurts, right?
-#[derive(Queryable)]
+#[derive(Debug, Identifiable, PartialEq, Queryable)]
+#[table_name = "accounts"]
 pub struct Account {
     /// The unique identifier of this account.
     ///
@@ -42,8 +43,8 @@ pub struct Account {
 /// See the documentation for `Account` for explanations of the fields. This
 /// type is different than Account in that it contains references to borrowed
 /// values for non-Copy types, rather than owned values.
-#[derive(Insertable)]
-#[table_name="accounts"]
+#[derive(Debug, PartialEq, Insertable)]
+#[table_name = "accounts"]
 pub struct NewAccount<'a> {
     /// The email address associated with this account.
     pub email: &'a str,
@@ -58,7 +59,8 @@ impl<'a> NewAccount<'a> {
 
 
 /// A document residing on a Google Drive.
-#[derive(Queryable)]
+#[derive(Debug, Identifiable, PartialEq, Queryable)]
+#[table_name = "docs"]
 pub struct Doc {
     /// The unique identifier of this document.
     ///
@@ -118,8 +120,8 @@ impl Doc {
 /// See the documentation for `Doc` for explanations of the fields. This type
 /// is different than Doc in that it contains references to borrowed values
 /// for non-Copy types, rather than owned values.
-#[derive(Insertable)]
-#[table_name="docs"]
+#[derive(Debug, Insertable, PartialEq)]
+#[table_name = "docs"]
 pub struct NewDoc<'a> {
     /// The unique identifier of this document.
     pub id: &'a str,
@@ -169,7 +171,7 @@ impl<'a> NewDoc<'a> {
 
 
 /// A parent-child relationship link between two documents.
-#[derive(Queryable)]
+#[derive(Debug, PartialEq, Queryable)]
 pub struct Link {
     /// The document ID of the parent.
     pub parent_id: String,
@@ -184,8 +186,8 @@ pub struct Link {
 /// See the documentation for `Link` for explanations of the fields. This type
 /// is different than Link in that it contains references to borrowed values
 /// for non-Copy types, rather than owned values.
-#[derive(Insertable)]
-#[table_name="links"]
+#[derive(Debug, Insertable, PartialEq)]
+#[table_name = "links"]
 pub struct NewLink<'a> {
     /// The document ID of the parent.
     pub parent_id: &'a str,
@@ -206,7 +208,7 @@ impl<'a> NewLink<'a> {
 ///
 /// The same document may be associated with more than one account, so we need
 /// a side table to track the associations.
-#[derive(Queryable)]
+#[derive(Debug, PartialEq, Queryable)]
 pub struct AccountAssociation {
     /// The ID of the associated document.
     pub doc_id: String,
@@ -226,8 +228,8 @@ pub struct AccountAssociation {
 /// fields. This type is different than AccountAssociation in that it contains
 /// references to borrowed values for non-Copy types, rather than owned
 /// values.
-#[derive(Insertable)]
-#[table_name="account_assns"]
+#[derive(Debug, Insertable, PartialEq)]
+#[table_name = "account_assns"]
 pub struct NewAccountAssociation<'a> {
     /// The ID of the associated document.
     pub doc_id: &'a str,
