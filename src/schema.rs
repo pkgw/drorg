@@ -24,7 +24,8 @@ table! {
 }
 
 table! {
-    links (parent_id, child_id) {
+    links (account_id, parent_id, child_id) {
+        account_id -> Integer,
         parent_id -> Text,
         child_id -> Text,
     }
@@ -32,6 +33,7 @@ table! {
 
 joinable!(account_associations -> accounts (account_id));
 joinable!(account_associations -> docs (doc_id));
+joinable!(links -> accounts (account_id));
 
 allow_tables_to_appear_in_same_query!(
     account_associations,

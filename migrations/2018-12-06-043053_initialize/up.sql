@@ -21,9 +21,11 @@ CREATE TABLE account_associations (
 );
 
 CREATE TABLE links (
+  account_id INTEGER NOT NULL,
   parent_id TEXT NOT NULL,
   child_id TEXT NOT NULL,
-  PRIMARY KEY (parent_id, child_id),
+  PRIMARY KEY (account_id, parent_id, child_id),
+  FOREIGN KEY (account_id) REFERENCES accounts(id),
   FOREIGN KEY (parent_id) REFERENCES docs(id),
   FOREIGN KEY (child_id) REFERENCES docs(id)
 );
