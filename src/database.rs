@@ -19,8 +19,48 @@ pub fn get_db_connection() -> Result<SqliteConnection> {
 }
 
 
+/// Superficial information about a logged-in account.
+///
+/// The bulk of the account state is stored in JSON files, but we use this
+/// table to be able to associate documents with accounts via integers rather
+/// than strings. I'm not sure if this actually helps but an email address per
+/// doc seems like a bit much. Premature optimization never hurts, right?
+#[derive(Debug, Identifiable, PartialEq, Queryable)]
+#[table_name = "accounts"]
+pub struct Account {
+    /// The unique identifier of this account.
+    ///
+    /// This integer has no semantic meaning outside of the database.
+    pub id: i32,
+
+    /// The email address associated with this account.
+    pub email: String,
+}
+
+
+/// Data representing a new account row to insert into the database
+///
+/// See the documentation for `Account` for explanations of the fields. This
+/// type is different than Account in that it contains references to borrowed
+/// values for non-Copy types, rather than owned values.
+#[derive(Debug, PartialEq, Insertable)]
+#[table_name = "accounts"]
+pub struct NewAccount<'a> {
+    /// The email address associated with this account.
+    pub email: &'a str,
+}
+
+impl<'a> NewAccount<'a> {
+    /// Create a new accountage record.
+    pub fn new(email: &'a str) -> NewAccount<'a> {
+        NewAccount { email }
+    }
+}
+
+
 /// A document residing on a Google Drive.
-#[derive(Queryable)]
+#[derive(Debug, Identifiable, PartialEq, Queryable)]
+#[table_name = "docs"]
 pub struct Doc {
     /// The unique identifier of this document.
     ///
@@ -31,13 +71,6 @@ pub struct Doc {
     ///
     /// This value can change.
     pub name: String,
-
-    /// The MIME type of this document.
-    ///
-    /// Special values include:
-    ///
-    /// - `application/vnd.google-apps.folder`, which indicates a folder
-    pub mime_type: String,
 
     /// Whether the user has starred this document.
     pub starred: bool,
@@ -50,6 +83,13 @@ pub struct Doc {
     /// Prefer `utc_mod_time()` to get this information with correct timezone
     /// tagging. (Namely, that this value is UTC.)
     pub modified_time: NaiveDateTime,
+
+    /// The MIME type of this document.
+    ///
+    /// Special values include:
+    ///
+    /// - `application/vnd.google-apps.folder`, which indicates a folder
+    pub mime_type: String,
 }
 
 impl Doc {
@@ -80,8 +120,8 @@ impl Doc {
 /// See the documentation for `Doc` for explanations of the fields. This type
 /// is different than Doc in that it contains references to borrowed values
 /// for non-Copy types, rather than owned values.
-#[derive(Insertable)]
-#[table_name="docs"]
+#[derive(Debug, Insertable, PartialEq)]
+#[table_name = "docs"]
 pub struct NewDoc<'a> {
     /// The unique identifier of this document.
     pub id: &'a str,
@@ -131,7 +171,7 @@ impl<'a> NewDoc<'a> {
 
 
 /// A parent-child relationship link between two documents.
-#[derive(Queryable)]
+#[derive(Debug, PartialEq, Queryable)]
 pub struct Link {
     /// The document ID of the parent.
     pub parent_id: String,
@@ -146,8 +186,8 @@ pub struct Link {
 /// See the documentation for `Link` for explanations of the fields. This type
 /// is different than Link in that it contains references to borrowed values
 /// for non-Copy types, rather than owned values.
-#[derive(Insertable)]
-#[table_name="links"]
+#[derive(Debug, Insertable, PartialEq)]
+#[table_name = "links"]
 pub struct NewLink<'a> {
     /// The document ID of the parent.
     pub parent_id: &'a str,
@@ -160,5 +200,47 @@ impl<'a> NewLink<'a> {
     /// Create a new linkage record.
     pub fn new(parent_id: &'a str, child_id: &'a str) -> NewLink<'a> {
         NewLink { parent_id, child_id }
+    }
+}
+
+
+/// A record tying a document to a logged-in account.
+///
+/// The same document may be associated with more than one account, so we need
+/// a side table to track the associations.
+#[derive(Debug, PartialEq, Queryable)]
+pub struct AccountAssociation {
+    /// The ID of the associated document.
+    pub doc_id: String,
+
+    /// The ID of the associated account.
+    ///
+    /// Each document is associated with at least one, but maybe more than
+    /// one, account.
+    pub account_id: i32,
+}
+
+
+/// Data representing a new account association row to insert into the
+/// database.
+///
+/// See the documentation for `AccountAssociation` for explanations of the
+/// fields. This type is different than AccountAssociation in that it contains
+/// references to borrowed values for non-Copy types, rather than owned
+/// values.
+#[derive(Debug, Insertable, PartialEq)]
+#[table_name = "account_assns"]
+pub struct NewAccountAssociation<'a> {
+    /// The ID of the associated document.
+    pub doc_id: &'a str,
+
+    /// The ID of the associated account.
+    pub account_id: i32,
+}
+
+impl<'a> NewAccountAssociation<'a> {
+    /// Create a new account association record.
+    pub fn new(doc_id: &'a str, account_id: i32) -> NewAccountAssociation<'a> {
+        NewAccountAssociation { doc_id, account_id }
     }
 }

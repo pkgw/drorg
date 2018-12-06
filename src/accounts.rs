@@ -27,6 +27,9 @@ pub struct AccountData {
 
     /// The identifier of this account's root folder.
     pub root_folder_id: String,
+
+    /// The identifying ID of this account in the SQLite database.
+    pub db_id: i32,
 }
 
 

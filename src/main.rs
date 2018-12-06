@@ -4,6 +4,7 @@
 //! The main CLI driver logic.
 
 #![deny(missing_docs)]
+#![allow(proc_macro_derive_resolution_fallback)]
 
 extern crate app_dirs;
 extern crate chrono;
@@ -108,9 +109,8 @@ impl DrorgInfoOptions {
                 // This is not efficient, and it's panicky, but meh.
                 let names: Vec<_> = id_path.iter().map(|docid| {
                     let elem = docs.filter(id.eq(&docid))
-                        .load::<database::Doc>(&app.conn).unwrap();
-                    assert_eq!(elem.len(), 1);
-                    elem[0].name.clone()
+                        .first::<database::Doc>(&app.conn).unwrap();
+                    elem.name.clone()
                 }).collect();
 
                 names.join(" > ")
@@ -126,6 +126,28 @@ impl DrorgInfoOptions {
                     }
                 }
             }
+
+            let accounts = {
+                use schema::account_assns::dsl::*;
+                let associations = account_assns.inner_join(schema::accounts::table)
+                    .filter(doc_id.eq(&doc.id))
+                    .load::<(database::AccountAssociation, database::Account)>(&app.conn)?;
+                let accounts: Vec<_> = associations.iter().map(|(_assoc, account)| account.email.clone()).collect();
+                accounts
+            };
+
+            match accounts.len() {
+                0 => println!("Account:   [none?!]"),
+                1 => println!("Account:   {}", accounts[0]),
+                _n => {
+                    println!("Accounts::");
+                    for account in accounts {
+                        println!("    {}", account);
+                    }
+                }
+            }
+
+            println!("Open-URL:  {}", doc.open_url());
         }
 
         Ok(0)
@@ -198,8 +220,40 @@ impl DrorgLoginOptions {
         // Now, for bookkeeping, we look up the email address associated with
         // it. We could just have the user specify an identifier, but I went
         // to the trouble to figure out how to do this right, so ...
-        let email = account.fetch_email_address(&app.secret)?;
-        println!("Successfully logged in to {}.", email);
+        let email_addr = account.fetch_email_address(&app.secret)?;
+        println!("Successfully logged in to {}.", email_addr);
+
+        // We might need to add this account to the database. To have sensible
+        // foreign key relations, the email address is not the primary key of
+        // the accounts table, so we need to see whether there's already an
+        // existing row for this account (which could happen if the user
+        // re-logs-in, etc.) If we add a new row, we have to do this awkward
+        // bit where we insert and then immediately query for the row we just
+        // added (cf https://github.com/diesel-rs/diesel/issues/771 ).
+        {
+            use diesel::prelude::*;
+            use schema::accounts::dsl::*;
+
+            let maybe_row = accounts.filter(email.eq(&email_addr))
+                .first::<database::Account>(&app.conn)
+                .optional()?;
+
+            let row_id = if let Some(row) = maybe_row {
+                row.id
+            } else {
+                let new_account = database::NewAccount::new(&email_addr);
+                diesel::replace_into(accounts)
+                    .values(&new_account)
+                    .execute(&app.conn)?;
+
+                let row = accounts.filter(email.eq(&email_addr))
+                    .first::<database::Account>(&app.conn)?;
+                row.id
+            };
+
+            account.data.db_id = row_id;
+            // JSON will be rewritten in acquire_change_page_token below.
+        }
 
         // Initialize our token for checking for changes to the documents. We
         // do this *before* scanning the complete listing; there's going to be
