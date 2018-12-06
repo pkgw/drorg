@@ -4,7 +4,6 @@
 //! Helpers for error handling.
 
 use google_drive3::Error as DriveError;
-use google_people1::Error as PeopleError;
 use std::error::Error as StdError;
 use std::result;
 
@@ -38,18 +37,6 @@ impl<T> AdaptExternalResult for result::Result<T, DriveError> {
         match self {
             Ok(x) => Ok(x),
             Err(DriveError::HttpError(e)) => Err(e.into()),
-            Err(e) => Err(format_err!("{}", e)),
-        }
-    }
-}
-
-impl<T> AdaptExternalResult for result::Result<T, PeopleError> {
-    type OkType = T;
-
-    fn adapt(self) -> Result<T> {
-        match self {
-            Ok(x) => Ok(x),
-            Err(PeopleError::HttpError(e)) => Err(e.into()),
             Err(e) => Err(format_err!("{}", e)),
         }
     }

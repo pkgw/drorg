@@ -32,9 +32,6 @@ pub type Authenticator<'a> = YupAuthenticator<DefaultAuthenticatorDelegate,
 /// The app-specific Drive API "hub" type.
 pub type Drive<'a> = google_drive3::Drive<Client, Authenticator<'a>>;
 
-/// The app-specific People Service API "hub" type.
-pub type People<'a> = google_people1::PeopleService<Client, Authenticator<'a>>;
-
 
 /// Get the "application secret" needed to authenticate against Google APIs.
 ///
@@ -113,11 +110,11 @@ macro_rules! impl_call_builder_ext {
     }
 }
 
+impl_call_builder_ext!(google_drive3::AboutGetCall<'a, C, A>);
 impl_call_builder_ext!(google_drive3::ChangeGetStartPageTokenCall<'a, C, A>);
 impl_call_builder_ext!(google_drive3::ChangeListCall<'a, C, A>);
 impl_call_builder_ext!(google_drive3::FileGetCall<'a, C, A>);
 impl_call_builder_ext!(google_drive3::FileListCall<'a, C, A>);
-impl_call_builder_ext!(google_people1::PeopleGetCall<'a, C, A>);
 
 
 /// Ask the user to authorize our app to use an account, interactively.
@@ -144,6 +141,19 @@ pub fn authorize_interactively<T: TokenStorage>(secret: &ApplicationSecret, stor
 
     let token = auth.token(scopes.as_vec()).adapt()?;
     Ok(storage.set(scopes.hash, &scopes.scopes, Some(token))?)
+}
+
+
+/// Get "about" meta-information about the logged-in Drive account
+pub fn get_about<'a, 'b>(hub: &'b Drive<'a>) -> Result<google_drive3::About>
+    where 'b: 'a
+{
+    let call = hub.about()
+        .get()
+        .param("fields", "exportFormats,importFormats,storageQuota,user")
+        .default_scope();
+    let (_resp, about) = call.doit().adapt()?;
+    Ok(about)
 }
 
 
