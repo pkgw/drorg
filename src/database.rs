@@ -72,11 +72,12 @@ pub struct Doc {
     /// This value can change.
     pub name: String,
 
-    /// Whether the user has starred this document.
-    pub starred: bool,
-
-    /// Whether this document is in the trash.
-    pub trashed: bool,
+    /// The MIME type of this document.
+    ///
+    /// Special values include:
+    ///
+    /// - `application/vnd.google-apps.folder`, which indicates a folder
+    pub mime_type: String,
 
     /// The last time this document was modified, without timezone information.
     ///
@@ -84,12 +85,11 @@ pub struct Doc {
     /// tagging. (Namely, that this value is UTC.)
     pub modified_time: NaiveDateTime,
 
-    /// The MIME type of this document.
-    ///
-    /// Special values include:
-    ///
-    /// - `application/vnd.google-apps.folder`, which indicates a folder
-    pub mime_type: String,
+    /// Whether the user has starred this document.
+    pub starred: bool,
+
+    /// Whether this document is in the trash.
+    pub trashed: bool,
 }
 
 impl Doc {
@@ -229,7 +229,7 @@ pub struct AccountAssociation {
 /// references to borrowed values for non-Copy types, rather than owned
 /// values.
 #[derive(Debug, Insertable, PartialEq)]
-#[table_name = "account_assns"]
+#[table_name = "account_associations"]
 pub struct NewAccountAssociation<'a> {
     /// The ID of the associated document.
     pub doc_id: &'a str,

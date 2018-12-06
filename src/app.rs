@@ -58,7 +58,7 @@ impl Application {
                     .execute(&self.conn)?;
 
                 let new_assn = database::NewAccountAssociation::new(&new_doc.id, account_id);
-                diesel::replace_into(schema::account_assns::table)
+                diesel::replace_into(schema::account_associations::table)
                     .values(&new_assn)
                     .execute(&self.conn)?;
 
@@ -77,7 +77,7 @@ impl Application {
                     .execute(&self.conn)?;
 
                 let new_assn = database::NewAccountAssociation::new(&new_doc.id, account_id);
-                diesel::replace_into(schema::account_assns::table)
+                diesel::replace_into(schema::account_associations::table)
                     .values(&new_assn)
                     .execute(&self.conn)?;
 
@@ -127,7 +127,6 @@ impl Application {
 
             for maybe_change in lister.iter() {
                 use schema::docs::dsl::*;
-                use schema::links::dsl::*;
 
                 let change = maybe_change?;
 
@@ -143,14 +142,17 @@ impl Application {
                     // document from their Trash; or I think this can happen
                     // if they lose access to the document.
 
-                    diesel::delete(links.filter(parent_id.eq(file_id)))
-                        .execute(&self.conn)?;
-                    diesel::delete(links.filter(child_id.eq(file_id)))
-                        .execute(&self.conn)?;
+                    {
+                        use schema::links::dsl::*;
+                        diesel::delete(links.filter(parent_id.eq(file_id)))
+                            .execute(&self.conn)?;
+                        diesel::delete(links.filter(child_id.eq(file_id)))
+                            .execute(&self.conn)?;
+                    }
 
                     {
-                        use schema::account_assns::dsl::*;
-                        diesel::delete(account_assns.filter(doc_id.eq(file_id)))
+                        use schema::account_associations::dsl::*;
+                        diesel::delete(account_associations.filter(doc_id.eq(file_id)))
                             .execute(&self.conn)?;
                     }
 
@@ -166,14 +168,17 @@ impl Application {
                         .execute(&self.conn)?;
 
                     let new_assn = database::NewAccountAssociation::new(&new_doc.id, account_id);
-                    diesel::replace_into(schema::account_assns::table)
+                    diesel::replace_into(schema::account_associations::table)
                         .values(&new_assn)
                         .execute(&self.conn)?;
 
                     // Refresh the parentage information.
 
-                    diesel::delete(links.filter(child_id.eq(file_id)))
-                        .execute(&self.conn)?;
+                    {
+                        use schema::links::dsl::*;
+                        diesel::delete(links.filter(child_id.eq(file_id)))
+                            .execute(&self.conn)?;
+                    }
 
                     if let Some(parents) = file.parents.as_ref() {
                         for pid in parents {

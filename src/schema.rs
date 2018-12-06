@@ -1,5 +1,5 @@
 table! {
-    account_assns (doc_id, account_id) {
+    account_associations (doc_id, account_id) {
         doc_id -> Text,
         account_id -> Integer,
     }
@@ -16,10 +16,10 @@ table! {
     docs (id) {
         id -> Text,
         name -> Text,
+        mime_type -> Text,
+        modified_time -> Timestamp,
         starred -> Bool,
         trashed -> Bool,
-        modified_time -> Timestamp,
-        mime_type -> Text,
     }
 }
 
@@ -30,11 +30,11 @@ table! {
     }
 }
 
-joinable!(account_assns -> accounts (account_id));
-joinable!(account_assns -> docs (doc_id));
+joinable!(account_associations -> accounts (account_id));
+joinable!(account_associations -> docs (doc_id));
 
 allow_tables_to_appear_in_same_query!(
-    account_assns,
+    account_associations,
     accounts,
     docs,
     links,

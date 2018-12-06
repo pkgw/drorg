@@ -1,1 +1,0 @@
--- SQLite can't delete columns, so this is a noop.
