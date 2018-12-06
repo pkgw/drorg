@@ -215,17 +215,24 @@ impl Application {
 /// asked we construct an in-memory `petgraph` graph from the database
 /// contents.
 pub struct LinkageTable {
-    graph: petgraph::Graph<String, (), Directed, u32>,
-    nodes: HashMap<String, NodeIndex<u32>>
+    /// If true, edges point from children to parents; otherwise, they point
+    /// from parents to children.
+    pub transposed: bool,
+
+    /// The graph of linkages between documents.
+    pub graph: petgraph::Graph<String, (), Directed, u32>,
+
+    /// A map from document IDs to node indices in the graph.
+    pub nodes: HashMap<String, NodeIndex<u32>>
 }
 
 impl Application {
     /// Load the table of inter-document linkages.
     ///
-    /// The underlying graph is directed. If `transpose` is false, links will
+    /// The underlying graph is directed. If `transposed` is false, links will
     /// point from parents to children. If true, links will point from
     /// children to parents.
-    pub fn load_linkage_table(&self, transpose: bool) -> Result<LinkageTable> {
+    pub fn load_linkage_table(&self, transposed: bool) -> Result<LinkageTable> {
         use schema::links::dsl::*;
 
         let mut graph = petgraph::Graph::new();
@@ -245,14 +252,14 @@ impl Application {
             // impossible for this function to attempt to create such
             // duplications.
 
-            if transpose {
+            if transposed {
                 graph.add_edge(cix, pix, ());
             } else {
                 graph.add_edge(pix, cix, ());
             }
         }
 
-        Ok(LinkageTable { graph, nodes })
+        Ok(LinkageTable { transposed, graph, nodes })
     }
 }
 
@@ -281,6 +288,8 @@ impl LinkageTable {
     /// they do not create a cycle within the path being considered.
     pub fn find_parent_paths(&self, start_id: &str) -> Vec<Vec<String>> {
         use std::collections::HashSet;
+
+        assert_eq!(self.transposed, true);
 
         let roots: HashSet<NodeIndex> = self.graph.externals(Direction::Outgoing).collect();
 
