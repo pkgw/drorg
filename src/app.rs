@@ -280,7 +280,8 @@ impl LinkageTable {
     /// containing the target document. The ID of the target document is not
     /// included in the return values. The path may be an empty vector, if the
     /// document has been shared with the user's account but not "added to My
-    /// Drive". (And perhaps other reasons?)
+    /// Drive". This can happen in other circumstances that I do not
+    /// understand (e.g. folder JupiterExample for wwt@aas.org).
     ///
     /// The algorithm here is homebrewed because I couldn't find any serious
     /// discussion of the relevant graph-thory problem. It's basically a
@@ -324,7 +325,6 @@ impl LinkageTable {
                     }
                 }
 
-                //path.reverse();
                 results.push(path);
             }
 
