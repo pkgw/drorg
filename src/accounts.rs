@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use yup_oauth2::ApplicationSecret;
 
 use errors::{AdaptExternalResult, Result};
-use google_apis::{CallBuilderExt, Drive, People};
+use google_apis::{self, CallBuilderExt, Drive};
 use token_storage::SerdeMemoryStorage;
 
 
@@ -90,97 +90,45 @@ impl Account {
         ::google_apis::authorize_interactively(secret, &mut self.data.tokens)
     }
 
-    /// Perform a GDrive web-API operation using this account.
-    ///
-    /// The callback has the signature `FnMut(hub: &Drive) -> Result<T>`. In
-    /// the definition here we get to use the elusive `where for` syntax!
-    pub fn with_drive_hub<T, F>(&mut self, secret: &ApplicationSecret, mut callback: F) -> Result<T>
+    /// Shim for with_drive_hub that doesn't save to JSON -- we need this to
+    /// make the API call to get the email address associated with the account
+    /// when setting it up, because otherwise it will fail when trying to
+    /// write JSON to an as-yet-unknown path.
+    fn with_drive_hub_nosave<T, F>(&mut self, secret: &ApplicationSecret, mut callback: F) -> Result<T>
         where for<'a> F: FnMut(&'a Drive<'a>) -> Result<T>
     {
         use yup_oauth2::{Authenticator, DefaultAuthenticatorDelegate};
         use google_apis::get_http_client;
 
-        let result = {
-            let auth = Authenticator::new(
-                secret,
-                DefaultAuthenticatorDelegate,
-                get_http_client()?,
-                &mut self.data.tokens,
-                None
-            );
-            let hub = google_drive3::Drive::new(get_http_client()?, auth);
-            callback(&hub)?
-        };
+        let auth = Authenticator::new(
+            secret,
+            DefaultAuthenticatorDelegate,
+            get_http_client()?,
+            &mut self.data.tokens,
+            None
+        );
 
-        // Our token(s) might have gotten updated.
-        self.save_to_json()?;
-
-        Ok(result)
+        let hub = google_drive3::Drive::new(get_http_client()?, auth);
+        callback(&hub)
     }
 
-    /// Shim for with_people_hub that doesn't save to JSON -- we need this to
-    /// make the API call to get the email address associated with the account
-    /// when setting it up, because otherwise it will fail when trying to
-    /// write JSON to an as-yet-unknown path.
-    fn with_people_hub_nosave<T, F>(&mut self, secret: &ApplicationSecret, mut callback: F) -> Result<T>
-        where for<'a> F: FnMut(&'a People<'a>) -> Result<T>
-    {
-        use yup_oauth2::{Authenticator, DefaultAuthenticatorDelegate};
-        use google_apis::get_http_client;
-
-        let result = {
-            let auth = Authenticator::new(
-                secret,
-                DefaultAuthenticatorDelegate,
-                get_http_client()?,
-                &mut self.data.tokens,
-                None
-            );
-            let hub = google_people1::PeopleService::new(get_http_client()?, auth);
-            callback(&hub)?
-        };
-
-        Ok(result)
-    }
-
-    /// Perform a Google People Service web-API operation using this account.
+    /// Perform a GDrive web-API operation using this account.
     ///
     /// The callback has the signature `FnMut(hub: &Drive) -> Result<T>`. In
     /// the definition here we get to use the elusive `where for` syntax!
-    #[allow(unused)]
-    pub fn with_people_hub<T, F>(&mut self, secret: &ApplicationSecret, callback: F) -> Result<T>
-        where for<'a> F: FnMut(&'a People<'a>) -> Result<T>
+    pub fn with_drive_hub<T, F>(&mut self, secret: &ApplicationSecret, callback: F) -> Result<T>
+        where for<'a> F: FnMut(&'a Drive<'a>) -> Result<T>
     {
-        let result = self.with_people_hub_nosave(secret, callback)?;
+        let result = self.with_drive_hub_nosave(secret, callback)?;
         self.save_to_json()?;
         Ok(result)
     }
 
     /// Ask Google for the email address associated with this account.
     pub fn fetch_email_address(&mut self, secret: &ApplicationSecret) -> Result<String> {
-        let user = self.with_people_hub_nosave(secret, |hub| {
-            let (_resp, info) = hub.people().get("people/me")
-                .person_fields("emailAddresses")
-                .default_scope()
-                .doit()
-                .adapt()?;
-            Ok(info)
-        })?;
-
-        let mut email = None;
-
-        for address in user.email_addresses.ok_or(format_err!("server response did not include email addresses"))? {
-            if let Some(meta) = address.metadata {
-                if let Some(true) = meta.primary {
-                    if address.value.is_some() {
-                        email = address.value;
-                        break;
-                    }
-                }
-            }
-        }
-
-        let email = email.ok_or(format_err!("server response did not include a primary email adddress"))?;
+        let about = self.with_drive_hub_nosave(secret, |hub| google_apis::get_about(&hub))?;
+        let user = about.user.ok_or(format_err!("server response did not include user information"))?;
+        let email = user.email_address.ok_or(format_err!("server response did not include email address"))?;
 
         // Kind of ugly: set the save path for our JSON file now that we know
         // what the associated email is. Then we can save the data. Note that

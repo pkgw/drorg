@@ -11,7 +11,6 @@ extern crate chrono;
 #[macro_use] extern crate diesel;
 #[macro_use] extern crate failure;
 extern crate google_drive3;
-extern crate google_people1;
 extern crate hyper;
 extern crate hyper_native_tls;
 extern crate petgraph;
