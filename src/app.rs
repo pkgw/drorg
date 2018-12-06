@@ -41,7 +41,7 @@ impl Application {
     /// Fill the database with records for all of the documents associated
     /// with an account.
     pub fn import_documents(&mut self, account: &mut Account) -> Result<()> {
-        let account_id = account.data.db_id; // borrowck fun
+        let the_account_id = account.data.db_id; // borrowck fun
 
         let root_id: String = account.with_drive_hub(&self.secret, |hub| {
             // This redundant codepath feels kind of ugly, but so far it seems
@@ -57,7 +57,7 @@ impl Application {
                     .values(&new_doc)
                     .execute(&self.conn)?;
 
-                let new_assn = database::NewAccountAssociation::new(&new_doc.id, account_id);
+                let new_assn = database::NewAccountAssociation::new(&new_doc.id, the_account_id);
                 diesel::replace_into(schema::account_associations::table)
                     .values(&new_assn)
                     .execute(&self.conn)?;
@@ -76,7 +76,7 @@ impl Application {
                     .values(&new_doc)
                     .execute(&self.conn)?;
 
-                let new_assn = database::NewAccountAssociation::new(&new_doc.id, account_id);
+                let new_assn = database::NewAccountAssociation::new(&new_doc.id, the_account_id);
                 diesel::replace_into(schema::account_associations::table)
                     .values(&new_assn)
                     .execute(&self.conn)?;
@@ -87,7 +87,7 @@ impl Application {
 
                 if let Some(parents) = file.parents.as_ref() {
                     for pid in parents {
-                        let new_link = database::NewLink::new(pid, &new_doc.id);
+                        let new_link = database::NewLink::new(the_account_id, pid, &new_doc.id);
                         diesel::replace_into(schema::links::table)
                             .values(&new_link)
                             .execute(&self.conn)?;
@@ -106,7 +106,7 @@ impl Application {
 
     /// Synchronize the database with recent changes in this account.
     pub fn sync_account(&mut self, email: &str, account: &mut Account) -> Result<()> {
-        let account_id = account.data.db_id; // borrowck fun
+        let the_account_id = account.data.db_id; // borrowck fun
 
         let token = account.data.change_page_token.take().ok_or(
             format_err!("no change-paging token for {}", email)
@@ -144,9 +144,11 @@ impl Application {
 
                     {
                         use schema::links::dsl::*;
-                        diesel::delete(links.filter(parent_id.eq(file_id)))
+                        diesel::delete(links.filter(account_id.eq(the_account_id)
+                                                    .and(parent_id.eq(file_id))))
                             .execute(&self.conn)?;
-                        diesel::delete(links.filter(child_id.eq(file_id)))
+                        diesel::delete(links.filter(account_id.eq(the_account_id)
+                                                    .and(child_id.eq(file_id))))
                             .execute(&self.conn)?;
                     }
 
@@ -167,7 +169,7 @@ impl Application {
                         .values(&new_doc)
                         .execute(&self.conn)?;
 
-                    let new_assn = database::NewAccountAssociation::new(&new_doc.id, account_id);
+                    let new_assn = database::NewAccountAssociation::new(&new_doc.id, the_account_id);
                     diesel::replace_into(schema::account_associations::table)
                         .values(&new_assn)
                         .execute(&self.conn)?;
@@ -176,13 +178,14 @@ impl Application {
 
                     {
                         use schema::links::dsl::*;
-                        diesel::delete(links.filter(child_id.eq(file_id)))
+                        diesel::delete(links.filter(account_id.eq(the_account_id)
+                                                    .and(child_id.eq(file_id))))
                             .execute(&self.conn)?;
                     }
 
                     if let Some(parents) = file.parents.as_ref() {
                         for pid in parents {
-                            let new_link = database::NewLink::new(pid, file_id);
+                            let new_link = database::NewLink::new(the_account_id, pid, file_id);
                             diesel::replace_into(schema::links::table)
                                 .values(&new_link)
                                 .execute(&self.conn)?;
@@ -220,6 +223,9 @@ impl Application {
 /// asked we construct an in-memory `petgraph` graph from the database
 /// contents.
 pub struct LinkageTable {
+    /// The ID of the account for which this table was constructed.
+    pub account_id: i32,
+
     /// If true, edges point from children to parents; otherwise, they point
     /// from parents to children.
     pub transposed: bool,
@@ -237,13 +243,18 @@ impl Application {
     /// The underlying graph is directed. If `transposed` is false, links will
     /// point from parents to children. If true, links will point from
     /// children to parents.
-    pub fn load_linkage_table(&self, transposed: bool) -> Result<LinkageTable> {
+    pub fn load_linkage_table(&self, acct_id: i32, transposed: bool) -> Result<LinkageTable> {
+        // as a dumb aliasing workaround, `acct_id` is the argument whereas
+        // `account_id` is the column in the database.
         use schema::links::dsl::*;
 
         let mut graph = petgraph::Graph::new();
         let mut nodes = HashMap::new();
 
-        for link in links.load::<database::Link>(&self.conn)? {
+        let q = links.filter(account_id.eq(acct_id))
+            .load::<database::Link>(&self.conn)?;
+
+        for link in q {
             let pix = *nodes.entry(link.parent_id.clone()).or_insert_with(
                 || graph.add_node(link.parent_id.clone())
             );
@@ -264,7 +275,7 @@ impl Application {
             }
         }
 
-        Ok(LinkageTable { transposed, graph, nodes })
+        Ok(LinkageTable { account_id: acct_id, transposed, graph, nodes })
     }
 }
 

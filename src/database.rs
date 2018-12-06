@@ -25,7 +25,7 @@ pub fn get_db_connection() -> Result<SqliteConnection> {
 /// table to be able to associate documents with accounts via integers rather
 /// than strings. I'm not sure if this actually helps but an email address per
 /// doc seems like a bit much. Premature optimization never hurts, right?
-#[derive(Debug, Identifiable, PartialEq, Queryable)]
+#[derive(Clone, Debug, Identifiable, PartialEq, Queryable)]
 #[table_name = "accounts"]
 pub struct Account {
     /// The unique identifier of this account.
@@ -173,6 +173,9 @@ impl<'a> NewDoc<'a> {
 /// A parent-child relationship link between two documents.
 #[derive(Debug, PartialEq, Queryable)]
 pub struct Link {
+    /// The account ID for which this linkage is relevant.
+    pub account_id: i32,
+
     /// The document ID of the parent.
     pub parent_id: String,
 
@@ -189,6 +192,9 @@ pub struct Link {
 #[derive(Debug, Insertable, PartialEq)]
 #[table_name = "links"]
 pub struct NewLink<'a> {
+    /// The account ID for which this linkage is relevant.
+    pub account_id: i32,
+
     /// The document ID of the parent.
     pub parent_id: &'a str,
 
@@ -198,8 +204,8 @@ pub struct NewLink<'a> {
 
 impl<'a> NewLink<'a> {
     /// Create a new linkage record.
-    pub fn new(parent_id: &'a str, child_id: &'a str) -> NewLink<'a> {
-        NewLink { parent_id, child_id }
+    pub fn new(account_id: i32, parent_id: &'a str, child_id: &'a str) -> NewLink<'a> {
+        NewLink { account_id, parent_id, child_id }
     }
 }
 

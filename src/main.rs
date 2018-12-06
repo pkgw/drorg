@@ -77,13 +77,14 @@ pub struct DrorgInfoOptions {
 
 impl DrorgInfoOptions {
     fn cli(self, mut app: Application) -> Result<i32> {
+        use std::collections::HashMap;
         use schema::docs::dsl::*;
 
         if !self.no_sync {
             app.sync_all_accounts()?;
         }
 
-        let linkages = app.load_linkage_table(true)?;
+        let mut linkages = HashMap::new();
 
         let pattern = format!("%{}%", self.stem);
         let results = docs.filter(name.like(&pattern))
@@ -104,44 +105,53 @@ impl DrorgInfoOptions {
             println!("Starred?:  {}", if doc.starred { "yes" } else { "no" });
             println!("Trashed?:  {}", if doc.trashed { "yes" } else { "no" });
 
-            let paths: Vec<_> = linkages.find_parent_paths(&doc.id).iter().map(|id_path| {
-                // This is not efficient, and it's panicky, but meh.
-                let names: Vec<_> = id_path.iter().map(|docid| {
-                    let elem = docs.filter(id.eq(&docid))
-                        .first::<database::Doc>(&app.conn).unwrap();
-                    elem.name.clone()
-                }).collect();
-
-                names.join(" > ")
-            }).collect();
-
-            match paths.len() {
-                0 => println!("Path:      [none -- root folder?]"),
-                1 => println!("Path:      {}", paths[0]),
-                _n => {
-                    println!("Paths::");
-                    for path in paths {
-                        println!("    {}", path);
-                    }
-                }
-            }
+            // Which accounts is this file associated with? This tells us
+            // which linkage tables we need.
 
             let accounts = {
                 use schema::account_associations::dsl::*;
                 let associations = account_associations.inner_join(schema::accounts::table)
                     .filter(doc_id.eq(&doc.id))
                     .load::<(database::AccountAssociation, database::Account)>(&app.conn)?;
-                let accounts: Vec<_> = associations.iter().map(|(_assoc, account)| account.email.clone()).collect();
+                let accounts: Vec<_> = associations.iter().map(|(_assoc, account)| account.clone()).collect();
                 accounts
             };
 
-            match accounts.len() {
-                0 => println!("Account:   [none?!]"),
-                1 => println!("Account:   {}", accounts[0]),
+            let mut path_reprs = Vec::new();
+
+            for acct in &accounts {
+                // This hashmap stuff is inefficient basically because the
+                // Entry API doesn't let us work with a value-creation
+                // function that returns a Result.
+
+                if !linkages.contains_key(&acct.id) {
+                    let table = app.load_linkage_table(acct.id, true)?;
+                    linkages.insert(acct.id, table);
+                }
+
+                let link_table = linkages.get(&acct.id).unwrap();
+
+                for p in link_table.find_parent_paths(&doc.id).iter().map(|id_path| {
+                    // This is not efficient, and it's panicky, but meh.
+                    let names: Vec<_> = id_path.iter().map(|docid| {
+                        let elem = docs.filter(id.eq(&docid))
+                            .first::<database::Doc>(&app.conn).unwrap();
+                        elem.name.clone()
+                    }).collect();
+
+                    names.join(" > ")
+                }) {
+                    path_reprs.push(format!("{}: {}", acct.email, p));
+                }
+            }
+
+            match path_reprs.len() {
+                0 => println!("Path:      [none??]"),
+                1 => println!("Path:      {}", path_reprs[0]),
                 _n => {
-                    println!("Accounts::");
-                    for account in accounts {
-                        println!("    {}", account);
+                    println!("Paths::");
+                    for p in path_reprs {
+                        println!("    {}", p);
                     }
                 }
             }
