@@ -127,8 +127,8 @@ impl DrorgInfoOptions {
             }
 
             let accounts = {
-                use schema::account_assns::dsl::*;
-                let associations = account_assns.inner_join(schema::accounts::table)
+                use schema::account_associations::dsl::*;
+                let associations = account_associations.inner_join(schema::accounts::table)
                     .filter(doc_id.eq(&doc.id))
                     .load::<(database::AccountAssociation, database::Account)>(&app.conn)?;
                 let accounts: Vec<_> = associations.iter().map(|(_assoc, account)| account.email.clone()).collect();

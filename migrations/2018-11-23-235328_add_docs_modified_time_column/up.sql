@@ -1,3 +1,0 @@
-ALTER TABLE docs ADD COLUMN modified_time DATETIME
-  NOT NULL
-  DEFAULT 0;
