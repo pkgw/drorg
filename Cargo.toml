@@ -14,6 +14,7 @@ license = "MIT"
 [dependencies]
 app_dirs = "^1.2"
 chrono = "0.4"
+clap = "^2.32"
 diesel = { version = "^1.3", features = ["chrono", "sqlite"] }
 failure = "0.1"
 google-drive3 = "1.0"

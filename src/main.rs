@@ -8,6 +8,7 @@
 
 extern crate app_dirs;
 extern crate chrono;
+#[macro_use] extern crate clap; // for arg_enum!
 #[macro_use] extern crate diesel;
 #[macro_use] extern crate failure;
 extern crate google_drive3;
@@ -69,9 +70,6 @@ fn open_url<S: AsRef<OsStr>>(url: S) -> Result<()> {
 /// Show detailed information about one or more documents.
 #[derive(Debug, StructOpt)]
 pub struct DrorgInfoOptions {
-    #[structopt(long = "no-sync", help = "Do not attempt to synchronize with the Google servers")]
-    no_sync: bool,
-
     #[structopt(help = "A document name, or fragment thereof")]
     stem: String,
 }
@@ -81,9 +79,7 @@ impl DrorgInfoOptions {
         use std::collections::HashMap;
         use schema::docs::dsl::*;
 
-        if !self.no_sync {
-            app.sync_all_accounts()?;
-        }
+        app.maybe_sync_all_accounts()?;
 
         let mut linkages = HashMap::new();
 
@@ -167,19 +163,14 @@ impl DrorgInfoOptions {
 
 /// Temp? List documents.
 #[derive(Debug, StructOpt)]
-pub struct DrorgListOptions {
-    #[structopt(long = "no-sync", help = "Do not attempt to synchronize with the Google servers")]
-    no_sync: bool,
-}
+pub struct DrorgListOptions {}
 
 impl DrorgListOptions {
     fn cli(self, mut app: Application) -> Result<i32> {
         use chrono::Utc;
         use schema::docs::dsl::*;
 
-        if !self.no_sync {
-            app.sync_all_accounts()?;
-        }
+        app.maybe_sync_all_accounts()?;
 
         let now = Utc::now();
 
@@ -291,7 +282,8 @@ pub struct DrorgOpenOptions {
 
 impl DrorgOpenOptions {
     fn cli(self, mut app: Application) -> Result<i32> {
-        // TODO: synchronize the database if needed, or something
+        app.maybe_sync_all_accounts()?;
+
         let pattern = format!("%{}%", self.stem);
 
         use schema::docs::dsl::*;
@@ -351,8 +343,7 @@ impl DrorgResyncOptions {
 
 /// The main StructOpt type for dispatching subcommands.
 #[derive(Debug, StructOpt)]
-#[structopt(name = "drorg", about = "Organize documents on Google Drive.")]
-pub enum DrorgCli {
+pub enum DrorgSubcommand {
     #[structopt(name = "info")]
     /// Show detailed information about one or more documents
     Info(DrorgInfoOptions),
@@ -374,16 +365,29 @@ pub enum DrorgCli {
     Resync(DrorgResyncOptions),
 }
 
+
+/// The main StructOpt argument dispatcher.
+#[derive(Debug, StructOpt)]
+#[structopt(name = "drorg", about = "Organize documents on Google Drive.")]
+pub struct DrorgCli {
+    #[structopt(subcommand)]
+    command: DrorgSubcommand,
+
+    #[structopt(flatten)]
+    app_opts: app::ApplicationOptions,
+}
+
+
 impl DrorgCli {
     fn cli(self) -> Result<i32> {
-        let app = Application::initialize()?;
+        let app = Application::initialize(self.app_opts)?;
 
-        match self {
-            DrorgCli::Info(opts) => opts.cli(app),
-            DrorgCli::List(opts) => opts.cli(app),
-            DrorgCli::Login(opts) => opts.cli(app),
-            DrorgCli::Open(opts) => opts.cli(app),
-            DrorgCli::Resync(opts) => opts.cli(app),
+        match self.command {
+            DrorgSubcommand::Info(opts) => opts.cli(app),
+            DrorgSubcommand::List(opts) => opts.cli(app),
+            DrorgSubcommand::Login(opts) => opts.cli(app),
+            DrorgSubcommand::Open(opts) => opts.cli(app),
+            DrorgSubcommand::Resync(opts) => opts.cli(app),
         }
     }
 }

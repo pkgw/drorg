@@ -7,6 +7,7 @@ use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use petgraph::prelude::*;
 use std::collections::HashMap;
+use structopt::StructOpt;
 use tcprint::{BasicColors, ColorPrintState};
 use yup_oauth2::ApplicationSecret;
 
@@ -17,8 +18,36 @@ use google_apis;
 use schema;
 
 
+/// An enum for specifying how we should synchronize with the servers
+arg_enum! {
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub enum SyncOption {
+        No,
+        Auto,
+        Yes,
+    }
+}
+
+
+/// Global options for the application.
+#[derive(Debug, StructOpt)]
+pub struct ApplicationOptions {
+    #[structopt(
+        long = "sync",
+        help = "Whether to synchronize with the Google Drive servers",
+        parse(try_from_str),
+        default_value = "auto",
+        raw(possible_values = r#"&["auto", "no", "yes"]"#),
+    )]
+    pub sync: SyncOption,
+}
+
+
 /// The state of the application.
 pub struct Application {
+    /// The global options provided on the command line.
+    pub options: ApplicationOptions,
+
     /// The secret we use to identify this client to Google.
     pub secret: ApplicationSecret,
 
@@ -32,12 +61,13 @@ pub struct Application {
 
 impl Application {
     /// Initialize the application.
-    pub fn initialize() -> Result<Application> {
+    pub fn initialize(options: ApplicationOptions) -> Result<Application> {
         let secret = google_apis::get_app_secret()?;
         let conn = database::get_db_connection()?;
         let ps = ColorPrintState::default();
 
         Ok(Application {
+            options,
             secret,
             conn,
             ps
@@ -214,6 +244,23 @@ impl Application {
         for maybe_info in accounts::get_accounts()? {
             let (email, mut account) = maybe_info?;
             self.sync_account(&email, &mut account)?;
+        }
+
+        Ok(())
+    }
+
+
+    /// Maybe synchronize the database, depending on the `--sync` option.
+    pub fn maybe_sync_all_accounts(&mut self) -> Result<()> {
+        let sync = match self.options.sync {
+            SyncOption::No => false,
+            SyncOption::Yes => true,
+            SyncOption::Auto => true, // XXX TODO
+        };
+
+        if sync {
+            tcreport!(self.ps, info: "synchronizing with the cloud ...");
+            self.sync_all_accounts()?;
         }
 
         Ok(())
