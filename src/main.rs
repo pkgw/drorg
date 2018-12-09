@@ -317,23 +317,33 @@ impl DrorgOpenOptions {
 }
 
 
-/// Resynchronize with an account.
+/// Synchronize with the cloud.
 #[derive(Debug, StructOpt)]
-pub struct DrorgResyncOptions {}
+pub struct DrorgSyncOptions {
+    #[structopt(long = "rebuild", help = "Rebuild all account data from scratch")]
+    rebuild: bool,
+}
 
-impl DrorgResyncOptions {
+impl DrorgSyncOptions {
     fn cli(self, mut app: Application) -> Result<i32> {
-        for maybe_info in accounts::get_accounts()? {
-            let (email, mut account) = maybe_info?;
+        if !self.rebuild {
+            // Lightweight sync
+            app.options.sync = app::SyncOption::Yes;
+            app.maybe_sync_all_accounts()?;
+        } else {
+            // Heavyweight -- rebuild account data from scratch.
+            for maybe_info in accounts::get_accounts()? {
+                let (email, mut account) = maybe_info?;
 
-            // TODO: delete all links involving documents from this account.
-            // To be safest, perhaps we should destroy all database rows
-            // associated with this account?
+                // TODO: delete all links involving documents from this account.
+                // To be safest, perhaps we should destroy all database rows
+                // associated with this account?
 
-            // Redo the initialization rigamarole from the "login" command.
-            tcprintln!(app.ps, ("Re-initializing "), [hl: "{}", email], ("..."));
-            account.acquire_change_page_token(&app.secret)?;
-            app.import_documents(&mut account)?;
+                // Redo the initialization rigamarole from the "login" command.
+                tcprintln!(app.ps, ("Rebuilding "), [hl: "{}", email], (" ..."));
+                account.acquire_change_page_token(&app.secret)?;
+                app.import_documents(&mut account)?;
+            }
         }
 
         Ok(0)
@@ -360,9 +370,9 @@ pub enum DrorgSubcommand {
     /// Open a document in a web browser
     Open(DrorgOpenOptions),
 
-    #[structopt(name = "resync")]
-    /// Re-synchronize with an account
-    Resync(DrorgResyncOptions),
+    #[structopt(name = "sync")]
+    /// Synchronize with the cloud
+    Sync(DrorgSyncOptions),
 }
 
 
@@ -387,7 +397,7 @@ impl DrorgCli {
             DrorgSubcommand::List(opts) => opts.cli(app),
             DrorgSubcommand::Login(opts) => opts.cli(app),
             DrorgSubcommand::Open(opts) => opts.cli(app),
-            DrorgSubcommand::Resync(opts) => opts.cli(app),
+            DrorgSubcommand::Sync(opts) => opts.cli(app),
         }
     }
 }
