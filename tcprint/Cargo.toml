@@ -1,0 +1,16 @@
+# Copyright 2018 Peter Williams <peter@newton.cx>
+# Licensed under the MIT License.
+
+[package]
+name = "tcprint"
+version = "0.1.0"
+authors = ["Peter Williams <peter@newton.cx>"]
+description = "Structured, colorized printing to the terminal using `termcolor`"
+homepage = "https://github.com/pkgw/drorg"
+documentation = "https://docs.rs/crate/tcprint"
+repository = "https://github.com/pkgw/drorg"
+readme = "README.md"
+license = "MIT"
+
+[dependencies]
+termcolor = "1.0"

@@ -7,6 +7,7 @@ use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use petgraph::prelude::*;
 use std::collections::HashMap;
+use tcprint::{BasicColors, ColorPrintState};
 use yup_oauth2::ApplicationSecret;
 
 use accounts::{self, Account};
@@ -23,6 +24,9 @@ pub struct Application {
 
     /// Our connection to the database of document information.
     pub conn: SqliteConnection,
+
+    /// The state object for colorized terminal output.
+    pub ps: ColorPrintState<BasicColors>,
 }
 
 
@@ -31,10 +35,12 @@ impl Application {
     pub fn initialize() -> Result<Application> {
         let secret = google_apis::get_app_secret()?;
         let conn = database::get_db_connection()?;
+        let ps = ColorPrintState::default();
 
         Ok(Application {
             secret,
-            conn
+            conn,
+            ps
         })
     }
 

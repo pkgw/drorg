@@ -18,6 +18,7 @@ extern crate serde;
 #[macro_use] extern crate serde_derive;
 extern crate serde_json;
 extern crate structopt;
+#[macro_use] extern crate tcprint;
 extern crate tempfile;
 extern crate timeago;
 extern crate url;
@@ -95,15 +96,15 @@ impl DrorgInfoOptions {
             if first {
                 first = false;
             } else {
-                println!("");
+                tcprintln!(app.ps, (""));
             }
 
-            println!("Name:      {}", doc.name);
-            println!("MIME-type: {}", doc.mime_type);
-            println!("Modified:  {}", doc.utc_mod_time().to_rfc3339());
-            println!("ID:        {}", doc.id);
-            println!("Starred?:  {}", if doc.starred { "yes" } else { "no" });
-            println!("Trashed?:  {}", if doc.trashed { "yes" } else { "no" });
+            tcprintln!(app.ps, [green: "Name:"], ("      {}", doc.name));
+            tcprintln!(app.ps, [hl: "MIME-type:"], (" {}", doc.mime_type));
+            tcprintln!(app.ps, [hl: "Modified:"], ("  {}", doc.utc_mod_time().to_rfc3339()));
+            tcprintln!(app.ps, [hl: "ID:"], ("        {}", doc.id));
+            tcprintln!(app.ps, [hl: "Starred?:"], ("  {}", if doc.starred { "yes" } else { "no" }));
+            tcprintln!(app.ps, [hl: "Trashed?:"], ("  {}", if doc.trashed { "yes" } else { "no" }));
 
             // Which accounts is this file associated with? This tells us
             // which linkage tables we need.
@@ -146,17 +147,17 @@ impl DrorgInfoOptions {
             }
 
             match path_reprs.len() {
-                0 => println!("Path:      [none??]"),
-                1 => println!("Path:      {}", path_reprs[0]),
+                0 => tcprintln!(app.ps, [hl: "Path:"], ("      [none??]")),
+                1 => tcprintln!(app.ps, [hl: "Path:"], ("      {}", path_reprs[0])),
                 _n => {
-                    println!("Paths::");
+                    tcprintln!(app.ps, [hl: "Paths::"]);
                     for p in path_reprs {
-                        println!("    {}", p);
+                        tcprintln!(app.ps, ("    {}", p));
                     }
                 }
             }
 
-            println!("Open-URL:  {}", doc.open_url());
+            tcprintln!(app.ps, [hl: "Open-URL:"], ("  {}", doc.open_url()));
         }
 
         Ok(0)
@@ -194,7 +195,7 @@ impl DrorgListOptions {
                 |_err| "[future?]".to_owned()
             );
 
-            println!("   {}{}{} {} ({})  {}", star, trash, is_folder, doc.name, doc.id, ago);
+            tcprintln!(app.ps, ("   {}{}{} {} ({})  {}", star, trash, is_folder, doc.name, doc.id, ago));
         }
 
         Ok(0)
@@ -230,7 +231,7 @@ impl DrorgLoginOptions {
         // it. We could just have the user specify an identifier, but I went
         // to the trouble to figure out how to do this right, so ...
         let email_addr = account.fetch_email_address(&app.secret)?;
-        println!("Successfully logged in to {}.", email_addr);
+        tcprintln!(app.ps, ("Successfully logged in to "), [hl: "{}", email_addr], ("."));
 
         // We might need to add this account to the database. To have sensible
         // foreign key relations, the email address is not the primary key of
@@ -271,11 +272,11 @@ impl DrorgLoginOptions {
         account.acquire_change_page_token(&app.secret)?;
 
         // OK, now actually slurp in the list of documents.
-        println!("Scanning documents ...");
+        tcprintln!(app.ps, ("Scanning documents ..."));
         app.import_documents(&mut account)?;
 
         // All done.
-        println!("Done.");
+        tcprintln!(app.ps, ("Done."));
         Ok(0)
     }
 }
@@ -289,7 +290,7 @@ pub struct DrorgOpenOptions {
 }
 
 impl DrorgOpenOptions {
-    fn cli(self, app: Application) -> Result<i32> {
+    fn cli(self, mut app: Application) -> Result<i32> {
         // TODO: synchronize the database if needed, or something
         let pattern = format!("%{}%", self.stem);
 
@@ -300,20 +301,20 @@ impl DrorgOpenOptions {
 
         let url = match results.len() {
             0 => {
-                println!("No known document names matched the pattern \"{}\"", self.stem);
+                tcreport!(app.ps, error: "no known document names matched the pattern \"{}\"", self.stem);
                 return Ok(1);
             },
 
             1 => results[0].open_url(),
 
             _n => {
-                println!("Multiple documents matched the pattern \"{}\":", self.stem);
-                println!("");
+                tcreport!(app.ps, error: "multiple documents matched the pattern \"{}\":", self.stem);
+                tcprintln!(app.ps, (""));
                 for r in results {
-                    println!("   {}", r.name);
+                    tcprintln!(app.ps, ("   {}", r.name));
                 }
-                println!("");
-                println!("Please use a more specific filter.");
+                tcprintln!(app.ps, (""));
+                tcprintln!(app.ps, ("Please use a more specific filter."));
                 return Ok(1);
             }
         };
@@ -338,7 +339,7 @@ impl DrorgResyncOptions {
             // associated with this account?
 
             // Redo the initialization rigamarole from the "login" command.
-            println!("Re-initializing {} ...", email);
+            tcprintln!(app.ps, ("Re-initializing "), [hl: "{}", email], ("..."));
             account.acquire_change_page_token(&app.secret)?;
             app.import_documents(&mut account)?;
         }
