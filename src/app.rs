@@ -3,6 +3,7 @@
 
 //! The main application state.
 
+use chrono::{DateTime, Duration, Utc};
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use petgraph::prelude::*;
@@ -43,7 +44,7 @@ pub struct ApplicationOptions {
 }
 
 
-/// The state of the application.
+/// The runtime state of the application.
 pub struct Application {
     /// The global options provided on the command line.
     pub options: ApplicationOptions,
@@ -135,13 +136,17 @@ impl Application {
         })?;
 
         account.data.root_folder_id = root_id;
+        account.data.last_sync = Some(Utc::now());
         account.save_to_json()?;
         Ok(())
     }
 
 
     /// Synchronize the database with recent changes in this account.
-    pub fn sync_account(&mut self, email: &str, account: &mut Account) -> Result<()> {
+    ///
+    /// Note that this doesn't set `data.last_sync`, since its caller has a
+    /// `now` object handy — this is pure laziness.
+    fn sync_account(&mut self, email: &str, account: &mut Account) -> Result<()> {
         let the_account_id = account.data.db_id; // borrowck fun
 
         let token = account.data.change_page_token.take().ok_or(
@@ -239,28 +244,37 @@ impl Application {
     }
 
 
-    /// Synchronize the database with recent changes to all accounts.
-    pub fn sync_all_accounts(&mut self) -> Result<()> {
-        for maybe_info in accounts::get_accounts()? {
-            let (email, mut account) = maybe_info?;
-            self.sync_account(&email, &mut account)?;
-        }
-
-        Ok(())
-    }
-
-
-    /// Maybe synchronize the database, depending on the `--sync` option.
+    /// Maybe synchronize the database with the cloud, depending on the
+    /// `--sync` option.
+    ///
+    /// Ideally, the UX here would not print anything at first, but if the
+    /// sync starts taking more than ~1 second, would print "synchronizing
+    /// ...". That way the user knows what's going on if the program stalls,
+    /// but we avoid chatter in the (common?) case that the sync is quick.
     pub fn maybe_sync_all_accounts(&mut self) -> Result<()> {
-        let sync = match self.options.sync {
-            SyncOption::No => false,
-            SyncOption::Yes => true,
-            SyncOption::Auto => true, // XXX TODO
-        };
+        // Could make this configurable?
+        let resync_delay = Duration::minutes(5);
 
-        if sync {
-            tcreport!(self.ps, info: "synchronizing with the cloud ...");
-            self.sync_all_accounts()?;
+        for maybe_info in accounts::get_accounts()? {
+            let now: DateTime<Utc> = Utc::now();
+            let (email, mut account) = maybe_info?;
+
+            let should_sync = match self.options.sync {
+                SyncOption::No => false,
+                SyncOption::Yes => true,
+                SyncOption::Auto => {
+                    if let Some(last_sync) = account.data.last_sync.as_ref() {
+                        now.signed_duration_since(*last_sync) > resync_delay
+                    } else {
+                        true
+                    }
+                },
+            };
+
+            if should_sync {
+                account.data.last_sync = Some(now);
+                self.sync_account(&email, &mut account)?;
+            }
         }
 
         Ok(())
