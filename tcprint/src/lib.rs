@@ -1,21 +1,117 @@
 // Copyright 2018 Peter Williams <peter@newton.cx>
 // Licensed under the MIT License.
 
-//! Structured, colorized printing to the terminal using
-//! [termcolor](https://github.com/BurntSushi/termcolor).
+//! Structured, colorized printing to the terminal using [termcolor].
 //!
-//! **Real docs TODO**.
+//! The [termcolor] crate has been carefully designed to allow CLI tools to
+//! print colors to the terminal in a cross-platform fashion — while most
+//! color-print crates only work with Unix color codes, [termcolor] also works
+//! on Windows. While this is a valuable capability, the [termcolor] API is
+//! fairly low-level.
 //!
-//! This module is designed to be helpful without requiring any special code,
-//! but it is extensible if you want to add features.
+//! This crate provides a slightly higher-level interface that aims to be
+//! convenient for basic use cases, and extensible when needed. First of all,
+//! the relevant state is gathered into a single `ColorPrintState` structure
+//! that can be passed around your application. This comprises (1) handles to
+//! color-capable standard output and error streams and (2) a palette of
+//! pre-defined colors. Second, macros are provided that make it easier to
+//! print output mixing a variety of colors.
+//!
+//! ## Basic Usage
 //!
 //! ```
+//! #[macro_use] extern crate tcprint;
+//!
 //! use tcprint::{BasicColors, ColorPrintState};
-//! let mut state = ColorPrintState::<BasicColors>::default();
 //!
+//! let mut state = ColorPrintState::<BasicColors>::default();
 //! let q = 17;
-//! tcprint!(state, [red: "oh no:"], ("q is: {}", q));
+//! tcprintln!(state, [red: "oh no:"], ("q is: {}", q));
 //! ```
+//!
+//! The above will print the line `oh no: q is 17`, where the phrase `oh no:`
+//! will appear in red. The arguments to the `tcprintln!` macro are structured
+//! as:
+//!
+//! ```ignore
+//! tcprintln!(state_object, clause1, ...clauseN);
+//! ```
+//!
+//! Where each clause takes on one of the following forms:
+//!
+//! - `(format, args...)` to print without applying colorization
+//! - `[colorname: format, args...]` to print applying the named color
+//!   (see `BasicColors` for a list of what’s available in the simple case)
+//!
+//! Along with `tcprintln!()`, macros named `tcprint!()`, `etcprintln!()`, and
+//! `etcprint!()` are provided, all in analogy with the printing macros
+//! provided with the Rust standard library.
+//!
+//! ## Log-Style Messages
+//!
+//! An additional macro named `tcreport!()` is provided to ease the printing
+//! of log messages classified as "info", "warning", or "error". **TODO:
+//! should play nice with the standard log API!**:
+//!
+//! ```
+//! # #[macro_use] extern crate tcprint;
+//! # use tcprint::{BasicColors, ColorPrintState};
+//! # let mut state = ColorPrintState::<BasicColors>::default();
+//! tcreport!(state, warning: "could not locate puppy");
+//! ```
+//!
+//! This will emit the text `warning: could not locate puppy`, where the
+//! portion `warning:` appears in bold yellow by default. Other allowed
+//! prefixes are `info:` (appearing in green) and `error:` (appearing in red).
+//!
+//! ## Custom Palettes
+//!
+//! To use a custom palette of colors, define your own struct with public
+//! fields of type `termcolor::ColorSpec`. Then use that struct instead of
+//! `BasicColors` when creating the `ColorPrintState` struct. This crate
+//! re-exports `Color` and `ColorSpec` from `termcolor` for convenience in
+//! doing so.
+//!
+//! ```
+//! #[macro_use] extern crate tcprint;
+//!
+//! use std::default::Default;
+//! use tcprint::{Color, ColorSpec, ColorPrintState};
+//!
+//! #[derive(Clone, Debug, Eq, PartialEq)]
+//! struct MyPalette {
+//!     /// In this app, pet names should always be printed using this color specification.
+//!     pub pet_name: ColorSpec,
+//! }
+//!
+//! impl Default for MyPalette {
+//!     fn default() -> Self {
+//!         // By default, pet names are printed in bold blue.
+//!         let mut pet_name = ColorSpec::new();
+//!         pet_name.set_fg(Some(Color::Blue)).set_bold(true);
+//!
+//!         MyPalette { pet_name }
+//!     }
+//! }
+//!
+//! fn main() {
+//!     let mut state = ColorPrintState::<MyPalette>::default();
+//!
+//!     let name = "Quemmy";
+//!     tcprintln!(state,
+//!          ("the name of my dog is "),
+//!          [pet_name: "{}", name],
+//!          ("!")
+//!     );
+//! }
+//! ```
+//!
+//! If you want to use `tcreport!()` with your custom palette, it must
+//! implement the `ReportingColors` trait.
+//!
+//! **TODO**: figure out locking plan!
+//!
+//! [termcolor]: https://github.com/BurntSushi/termcolor
 
 #![deny(missing_docs)]
 
@@ -26,13 +122,16 @@ use std::fmt;
 use std::io::{self, Write};
 use termcolor::{ColorChoice, StandardStream, WriteColor};
 
+#[doc(no_inline)]
 pub use termcolor::{Color, ColorSpec};
 
 
 /// Which destination to print text to: standard output or standard error.
 ///
 /// This enum may seem a bit superfluous, but it's possible that we might want
-/// to extend it with additional variants in the future.
+/// to extend it with additional variants in the future (e.g., to print to
+/// both streams, or something).
+#[doc(hidden)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PrintDestination {
     /// Print to standard error.
@@ -71,7 +170,7 @@ impl PrintStreams {
     /// This is a low-level function, expected to be used by higher-level APIs.
     #[inline(always)]
     pub fn print_color(&mut self, stream: PrintDestination, color: &ColorSpec, args: fmt::Arguments)
-        -> Result<(), io::Error>
+        -> io::Result<()>
     {
         let stream = match stream {
             PrintDestination::Stderr => &mut self.stderr,
@@ -90,7 +189,7 @@ impl PrintStreams {
     /// This is a low-level function, expected to be used by higher-level APIs.
     #[inline(always)]
     pub fn print_nocolor(&mut self, stream: PrintDestination, args: fmt::Arguments)
-        -> Result<(), io::Error>
+        -> io::Result<()>
     {
         let stream = match stream {
             PrintDestination::Stderr => &mut self.stderr,
@@ -99,21 +198,47 @@ impl PrintStreams {
 
         write!(stream, "{}", args)
     }
+
+    /// Flush the streams.
+    pub fn flush(&mut self) -> io::Result<()> {
+        self.stdout.flush()?;
+        self.stderr.flush()
+    }
 }
 
 
 /// A basic selection of colors for printing to the terminal.
+///
+/// This type provides a simple, built-in palette for colorized printing. You
+/// typically won’t need to ever explicitly instantiate it, since it
+/// implements `Default` and so does `ColorPrintState`:
+///
+/// ```
+/// #[macro_use] extern crate tcprint;
+///
+/// use tcprint::{BasicColors, ColorPrintState};
+///
+/// let mut state = ColorPrintState::<BasicColors>::default();
+/// tcprintln!(state, ("Conditions are "), [green: "green"], ("!"));
+/// ```
+///
+/// The listing of fields below shows which colors are available.
+///
+/// This type implements the `ReportingColors` trait. It returns bold green
+/// for `ReportType::Info`, bold yellow for `ReportType::Warning`, and bold
+/// red for `ReportType::Error`.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BasicColors {
-    /// Bold red.
-    pub red: ColorSpec,
-
     /// Bold green.
     pub green: ColorSpec,
 
     /// Bold yellow.
     pub yellow: ColorSpec,
 
-    /// "Highlight": bold white .
+    /// Bold red.
+    pub red: ColorSpec,
+
+    /// "Highlight": bold white.
     pub hl: ColorSpec,
 }
 
@@ -122,19 +247,19 @@ impl Default for BasicColors {
         let mut green = ColorSpec::new();
         green.set_fg(Some(Color::Green)).set_bold(true);
 
-        let mut red = ColorSpec::new();
-        red.set_fg(Some(Color::Red)).set_bold(true);
-
         let mut yellow = ColorSpec::new();
         yellow.set_fg(Some(Color::Yellow)).set_bold(true);
+
+        let mut red = ColorSpec::new();
+        red.set_fg(Some(Color::Red)).set_bold(true);
 
         let mut hl = ColorSpec::new();
         hl.set_bold(true);
 
         BasicColors {
             green,
-            red,
             yellow,
+            red,
             hl,
         }
     }
@@ -143,9 +268,46 @@ impl Default for BasicColors {
 
 /// State for colorized printing.
 ///
+/// This structure holds the state needed for colorized printing, namely:
+///
+/// 1. Handles to colorized versions of the standard output and error streams
+/// 2. A palette of colors to use when printing
+///
+/// Your app should generally create one of these structures early upon
+/// startup, and then pass references to it to all modules that need to print
+/// to the terminal. Those modules should then use `tcprintln!()`,
+/// `tcreport!()`, and related macros to print colorized output to the
+/// terminal.
+///
 /// The type parameter `C` should be a structure containing public fields of
 /// type `termcolor::ColorSpec`. These will be accessed inside the macros to
-/// simplify the creation of colorized output.
+/// simplify the creation of colorized output. The structure `BasicColors`
+/// provided by this crate is a simple default that aims to suffice for most
+/// purposes. If you want to use `tcreport!()`, the type `C` must implement
+/// the `ReportingColors` trait.
+///
+/// ## Example
+///
+/// ```
+/// #[macro_use] extern crate tcprint;
+///
+/// use tcprint::{BasicColors, ColorPrintState};
+///
+/// let mut state = ColorPrintState::<BasicColors>::default();
+/// tcreport!(state, warning: "rogue needs food, badly!");
+/// ```
+///
+/// See the crate-level documentation for an example of how to use this
+/// structure with a custom color palette.
+///
+/// ## Technical Note
+///
+/// The design of this type was the best solution I could come up with for
+/// figuring out how to centralize the colored-printing state in a single
+/// value, while preserving extensibility and avoiding problems with the
+/// borrow-checker. You could imagine using an enumeration of possible colors
+/// instead of having the palette type `C` with public fields, but the only
+/// way I could see to get that to work would require some heavyweight macros.
 #[derive(Default)]
 pub struct ColorPrintState<C> {
     streams: PrintStreams,
@@ -154,9 +316,20 @@ pub struct ColorPrintState<C> {
 
 impl<C> ColorPrintState<C> {
     /// Initialize colorized printing state.
+    ///
+    /// It is generally preferable to have your color palette type `C`
+    /// implement `Default`, and then just create an instance of this type
+    /// using `Default::default()`.
     pub fn new(colors: C) -> Self {
         let streams = PrintStreams::default();
         ColorPrintState { streams, colors }
+    }
+
+    /// Flush the output streams.
+    ///
+    /// This method flushes standard output and error.
+    pub fn flush(&mut self) -> io::Result<()> {
+        self.streams.flush()
     }
 
     /// Work around borrowck/macro issues.
@@ -167,6 +340,12 @@ impl<C> ColorPrintState<C> {
 }
 
 
+/// Low-level colorized printing.
+///
+/// This macro is the generic engine underlying `tcprint!()` and friends.
+/// Rather than hardcoding a variant of the `PrintDestination` enumeration to
+/// use, it takes the destination type as an additional argument.
+#[doc(hidden)]
 #[macro_export]
 macro_rules! tcanyprint {
     (@clause $cps:expr, $dest:expr, [$color:ident : $($fmt_args:expr),*]) => {{
@@ -187,6 +366,56 @@ macro_rules! tcanyprint {
 }
 
 
+/// Print to standard output with colorization, without a trailing newline.
+///
+/// The arguments to this macro are structured as:
+///
+/// ```ignore
+/// tcprint!(state_object, clause1, ...clauseN);
+/// ```
+///
+/// Where `state` is a `ColorPrintState` and each clause takes on one of the
+/// following forms:
+///
+/// - `(format, args...)` to print without applying colorization
+/// - `[colorname: format, args...]` to print applying the named color
+///
+/// In all cases the `format, args...` items are passed through the standard
+/// Rust [string formatting mechanism](https://doc.rust-lang.org/std/fmt/).
+///
+/// The `colorname` specifier should refer to a public field of the state
+/// object’s "colors" structure. If using the `BasicColors` structure, the
+/// available options are: `green`, `yellow`, `red`, and `hl` (highlight).
+///
+/// ## Examples
+///
+/// ```
+/// # #[macro_use] extern crate tcprint;
+/// # use tcprint::{BasicColors, ColorPrintState};
+/// # let mut state = ColorPrintState::<BasicColors>::default();
+/// let attempt_num = 2;
+/// let server = "example.com";
+/// tcprint!(state,
+///    ("attempting to connect to "),
+///    [hl: "{}", server],
+///    (" ({}th attempt) ...", attempt_num)
+/// );
+/// ```
+///
+/// Note that no spaces are inserted between clauses.
+///
+/// ```
+/// # #[macro_use] extern crate tcprint;
+/// # use tcprint::{BasicColors, ColorPrintState};
+/// # let mut state = ColorPrintState::<BasicColors>::default();
+/// tcprint!(state,
+///    ("putting the "),
+///    [hl: "fun"],
+///    (" in dys"),
+///    [yellow: "fun"],
+///    ("ctional")
+/// );
+/// ```
 #[macro_export]
 macro_rules! tcprint {
     ($cps:expr, $($clause:tt),*) => {{
@@ -196,6 +425,9 @@ macro_rules! tcprint {
 }
 
 
+/// Print to standard error with colorization, without a trailing newline.
+///
+/// For usage information, see the documentation for `tcprint!()`.
 #[macro_export]
 macro_rules! etcprint {
     ($cps:expr, $($clause:tt),*) => {{
@@ -205,6 +437,9 @@ macro_rules! etcprint {
 }
 
 
+/// Print to standard output with colorization and a trailing newline.
+///
+/// For usage information, see the documentation for `tcprint!()`.
 #[macro_export]
 macro_rules! tcprintln {
     ($cps:expr, $($clause:tt),*) => {{
@@ -213,6 +448,9 @@ macro_rules! tcprintln {
 }
 
 
+/// Print to standard error with colorization and a trailing newline.
+///
+/// For usage information, see the documentation for `tcprint!()`.
 #[macro_export]
 macro_rules! etcprintln {
     ($cps:expr, $($clause:tt),*) => {{
@@ -221,13 +459,16 @@ macro_rules! etcprintln {
 }
 
 
-/// A helper enumeration defining differen "report" types.
+/// A helper enumeration of different “report” (log level) types.
 ///
-/// TODO: Ord, PartialOrd?
+/// **TODO**: We should play nice with the `log` crate.
+///
+/// This enumeration is used in the `ReportingColors` trait, for if you want
+/// to use the `tcreport!()` macro with a custom color palette type.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReportType {
     /// An informational message.
-    Note,
+    Info,
 
     /// A warning.
     Warning,
@@ -237,47 +478,129 @@ pub enum ReportType {
 }
 
 
-/// A helper trait for accessing the colors associated with standard "report" types.
+/// Specify colors to be used by the `tcreport!()` macro.
+///
+/// If you are using a custom color palette for your colorized printing, you
+/// must implement this trait on your palette structure if you want to use the
+/// `tcreport!()` macro. There is one method to implement, which simply maps
+/// between a variant of the `ReportType` enumeration and a
+/// `termcolor::ColorSpec` reference.
+///
+/// ## Example
+///
+/// ```
+/// #[macro_use] extern crate tcprint;
+///
+/// use std::default::Default;
+/// use tcprint::{Color, ColorSpec, ColorPrintState, ReportingColors, ReportType};
+///
+/// /// In this app, the only "colorization" we use is that sometimes we underline things.
+/// #[derive(Clone, Debug, Eq, PartialEq)]
+/// struct MyPalette {
+///     pub ul: ColorSpec,
+/// }
+///
+/// impl Default for MyPalette {
+///     fn default() -> Self {
+///         let mut ul = ColorSpec::new();
+///         ul.set_underline(true);
+///
+///         MyPalette { ul }
+///     }
+/// }
+///
+/// // Regardless of the report type, the message prefix ("error:", etc.)
+/// // will be printed with underlining but no special color.
+/// impl ReportingColors for MyPalette {
+///     fn get_color_for_report(&self, reptype: ReportType) -> &ColorSpec {
+///         &self.ul
+///     }
+/// }
+///
+/// fn main() {
+///     let mut state = ColorPrintState::<MyPalette>::default();
+///     tcreport!(state, info: "all log reports will be prefixed with underlined text");
+/// }
+/// ```
 pub trait ReportingColors {
     /// Get a `termcolor::ColorSpec` to be associated with a report message.
+    ///
+    /// This color will be used to print the prefix of the message, which will
+    /// be something like `warning:`. The main message itself will be printed
+    /// with plain colorization.
     fn get_color_for_report(&self, reptype: ReportType) -> &ColorSpec;
 }
 
 impl ReportingColors for BasicColors {
     fn get_color_for_report(&self, reptype: ReportType) -> &ColorSpec {
         match reptype {
-            ReportType::Note => &self.green,
+            ReportType::Info => &self.green,
             ReportType::Warning => &self.yellow,
             ReportType::Error => &self.red,
         }
     }
 }
 
+/// Print a colorized log message.
+///
+/// The syntax of this macro is:
+///
+/// ```ignore
+/// tcreport!(state, level: format, args...);
+/// ```
+///
+/// Where `state` is an expression evaluating to a `ColorPrintState`, `level`
+/// is literal text matching one of: `info`, `warning`, or `error`, and
+/// `format, args...` are passed through the standard Rust [string formatting
+/// mechanism](https://doc.rust-lang.org/std/fmt/).
+///
+/// ## Example
+///
+/// ```
+/// # #[macro_use] extern crate tcprint;
+/// # use tcprint::{BasicColors, ColorPrintState};
+/// # let mut state = ColorPrintState::<BasicColors>::default();
+/// let pet_type = "puppy";
+/// tcreport!(state, warning: "could not locate {}", pet_type);
+/// ```
+///
+/// This will emit the text `warning: could not locate puppy`, where the
+/// portion `warning:` appears in bold yellow by default.
+///
+/// ## Details
+///
+/// The color palette structure associated with the `ColorPrintState` must
+/// implement the `ReportingColors` trait. For the `BasicColors` struct, the
+/// `info` level is associated with (bold) green, `warning` with bold yellow,
+/// and `error` with bold red.
+///
+/// Messages of the `info` level are printed to standard output. Messages of
+/// `warning` and `error` levels are printed to standard error.
 #[macro_export]
 macro_rules! tcreport {
-    (@inner $cps:expr, $type:expr, $prefix:expr, $($fmt_args:expr),*) => {{
+    (@inner $cps:expr, $dest:expr, $type:expr, $prefix:expr, $($fmt_args:expr),*) => {{
         {
             use $crate::{PrintDestination, ReportingColors};
             let (streams, colors) = $cps.split_into_components_mut();
             let color = colors.get_color_for_report($type);
-            let _r = streams.print_color(PrintDestination::Stdout, color, format_args!($prefix));
+            let _r = streams.print_color($dest, color, format_args!($prefix));
         }
 
         tcprintln!($cps, (" "), ($($fmt_args),*));
     }};
 
-    ($cps:expr, note : $($fmt_args:expr),*) => {{
+    ($cps:expr, info : $($fmt_args:expr),*) => {{
         use $crate::ReportType;
-        tcreport!(@inner $cps, ReportType::Note, "note:", $($fmt_args),*)
+        tcreport!(@inner $cps, PrintDestination::Stdout, ReportType::Info, "info:", $($fmt_args),*)
     }};
 
     ($cps:expr, warning : $($fmt_args:expr),*) => {{
         use $crate::ReportType;
-        tcreport!(@inner $cps, ReportType::Warning, "warning:", $($fmt_args),*)
+        tcreport!(@inner $cps, PrintDestination::Stderr, ReportType::Warning, "warning:", $($fmt_args),*)
     }};
 
     ($cps:expr, error : $($fmt_args:expr),*) => {{
         use $crate::ReportType;
-        tcreport!(@inner $cps, ReportType::Error, "error:", $($fmt_args),*)
+        tcreport!(@inner $cps, PrintDestination::Stderr, ReportType::Error, "error:", $($fmt_args),*)
     }};
 }
