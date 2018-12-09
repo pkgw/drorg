@@ -8,6 +8,7 @@
 
 extern crate app_dirs;
 extern crate chrono;
+#[macro_use] extern crate clap; // for arg_enum!
 #[macro_use] extern crate diesel;
 #[macro_use] extern crate failure;
 extern crate google_drive3;
@@ -69,9 +70,6 @@ fn open_url<S: AsRef<OsStr>>(url: S) -> Result<()> {
 /// Show detailed information about one or more documents.
 #[derive(Debug, StructOpt)]
 pub struct DrorgInfoOptions {
-    #[structopt(long = "no-sync", help = "Do not attempt to synchronize with the Google servers")]
-    no_sync: bool,
-
     #[structopt(help = "A document name, or fragment thereof")]
     stem: String,
 }
@@ -81,9 +79,7 @@ impl DrorgInfoOptions {
         use std::collections::HashMap;
         use schema::docs::dsl::*;
 
-        if !self.no_sync {
-            app.sync_all_accounts()?;
-        }
+        app.maybe_sync_all_accounts()?;
 
         let mut linkages = HashMap::new();
 
@@ -99,7 +95,7 @@ impl DrorgInfoOptions {
                 tcprintln!(app.ps, (""));
             }
 
-            tcprintln!(app.ps, [green: "Name:"], ("      {}", doc.name));
+            tcprintln!(app.ps, [hl: "Name:"], ("      "), [green: "{}", doc.name]);
             tcprintln!(app.ps, [hl: "MIME-type:"], (" {}", doc.mime_type));
             tcprintln!(app.ps, [hl: "Modified:"], ("  {}", doc.utc_mod_time().to_rfc3339()));
             tcprintln!(app.ps, [hl: "ID:"], ("        {}", doc.id));
@@ -167,19 +163,14 @@ impl DrorgInfoOptions {
 
 /// Temp? List documents.
 #[derive(Debug, StructOpt)]
-pub struct DrorgListOptions {
-    #[structopt(long = "no-sync", help = "Do not attempt to synchronize with the Google servers")]
-    no_sync: bool,
-}
+pub struct DrorgListOptions {}
 
 impl DrorgListOptions {
     fn cli(self, mut app: Application) -> Result<i32> {
         use chrono::Utc;
         use schema::docs::dsl::*;
 
-        if !self.no_sync {
-            app.sync_all_accounts()?;
-        }
+        app.maybe_sync_all_accounts()?;
 
         let now = Utc::now();
 
@@ -291,7 +282,8 @@ pub struct DrorgOpenOptions {
 
 impl DrorgOpenOptions {
     fn cli(self, mut app: Application) -> Result<i32> {
-        // TODO: synchronize the database if needed, or something
+        app.maybe_sync_all_accounts()?;
+
         let pattern = format!("%{}%", self.stem);
 
         use schema::docs::dsl::*;
@@ -325,23 +317,33 @@ impl DrorgOpenOptions {
 }
 
 
-/// Resynchronize with an account.
+/// Synchronize with the cloud.
 #[derive(Debug, StructOpt)]
-pub struct DrorgResyncOptions {}
+pub struct DrorgSyncOptions {
+    #[structopt(long = "rebuild", help = "Rebuild all account data from scratch")]
+    rebuild: bool,
+}
 
-impl DrorgResyncOptions {
+impl DrorgSyncOptions {
     fn cli(self, mut app: Application) -> Result<i32> {
-        for maybe_info in accounts::get_accounts()? {
-            let (email, mut account) = maybe_info?;
+        if !self.rebuild {
+            // Lightweight sync
+            app.options.sync = app::SyncOption::Yes;
+            app.maybe_sync_all_accounts()?;
+        } else {
+            // Heavyweight -- rebuild account data from scratch.
+            for maybe_info in accounts::get_accounts()? {
+                let (email, mut account) = maybe_info?;
 
-            // TODO: delete all links involving documents from this account.
-            // To be safest, perhaps we should destroy all database rows
-            // associated with this account?
+                // TODO: delete all links involving documents from this account.
+                // To be safest, perhaps we should destroy all database rows
+                // associated with this account?
 
-            // Redo the initialization rigamarole from the "login" command.
-            tcprintln!(app.ps, ("Re-initializing "), [hl: "{}", email], ("..."));
-            account.acquire_change_page_token(&app.secret)?;
-            app.import_documents(&mut account)?;
+                // Redo the initialization rigamarole from the "login" command.
+                tcprintln!(app.ps, ("Rebuilding "), [hl: "{}", email], (" ..."));
+                account.acquire_change_page_token(&app.secret)?;
+                app.import_documents(&mut account)?;
+            }
         }
 
         Ok(0)
@@ -351,8 +353,7 @@ impl DrorgResyncOptions {
 
 /// The main StructOpt type for dispatching subcommands.
 #[derive(Debug, StructOpt)]
-#[structopt(name = "drorg", about = "Organize documents on Google Drive.")]
-pub enum DrorgCli {
+pub enum DrorgSubcommand {
     #[structopt(name = "info")]
     /// Show detailed information about one or more documents
     Info(DrorgInfoOptions),
@@ -369,21 +370,34 @@ pub enum DrorgCli {
     /// Open a document in a web browser
     Open(DrorgOpenOptions),
 
-    #[structopt(name = "resync")]
-    /// Re-synchronize with an account
-    Resync(DrorgResyncOptions),
+    #[structopt(name = "sync")]
+    /// Synchronize with the cloud
+    Sync(DrorgSyncOptions),
 }
+
+
+/// The main StructOpt argument dispatcher.
+#[derive(Debug, StructOpt)]
+#[structopt(name = "drorg", about = "Organize documents on Google Drive.")]
+pub struct DrorgCli {
+    #[structopt(subcommand)]
+    command: DrorgSubcommand,
+
+    #[structopt(flatten)]
+    app_opts: app::ApplicationOptions,
+}
+
 
 impl DrorgCli {
     fn cli(self) -> Result<i32> {
-        let app = Application::initialize()?;
+        let app = Application::initialize(self.app_opts)?;
 
-        match self {
-            DrorgCli::Info(opts) => opts.cli(app),
-            DrorgCli::List(opts) => opts.cli(app),
-            DrorgCli::Login(opts) => opts.cli(app),
-            DrorgCli::Open(opts) => opts.cli(app),
-            DrorgCli::Resync(opts) => opts.cli(app),
+        match self.command {
+            DrorgSubcommand::Info(opts) => opts.cli(app),
+            DrorgSubcommand::List(opts) => opts.cli(app),
+            DrorgSubcommand::Login(opts) => opts.cli(app),
+            DrorgSubcommand::Open(opts) => opts.cli(app),
+            DrorgSubcommand::Sync(opts) => opts.cli(app),
         }
     }
 }

@@ -3,10 +3,12 @@
 
 //! The main application state.
 
+use chrono::{DateTime, Duration, Utc};
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use petgraph::prelude::*;
 use std::collections::HashMap;
+use structopt::StructOpt;
 use tcprint::{BasicColors, ColorPrintState};
 use yup_oauth2::ApplicationSecret;
 
@@ -17,8 +19,36 @@ use google_apis;
 use schema;
 
 
-/// The state of the application.
+/// An enum for specifying how we should synchronize with the servers
+arg_enum! {
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub enum SyncOption {
+        No,
+        Auto,
+        Yes,
+    }
+}
+
+
+/// Global options for the application.
+#[derive(Debug, StructOpt)]
+pub struct ApplicationOptions {
+    #[structopt(
+        long = "sync",
+        help = "Whether to synchronize with the Google Drive servers",
+        parse(try_from_str),
+        default_value = "auto",
+        raw(possible_values = r#"&["auto", "no", "yes"]"#),
+    )]
+    pub sync: SyncOption,
+}
+
+
+/// The runtime state of the application.
 pub struct Application {
+    /// The global options provided on the command line.
+    pub options: ApplicationOptions,
+
     /// The secret we use to identify this client to Google.
     pub secret: ApplicationSecret,
 
@@ -32,12 +62,13 @@ pub struct Application {
 
 impl Application {
     /// Initialize the application.
-    pub fn initialize() -> Result<Application> {
+    pub fn initialize(options: ApplicationOptions) -> Result<Application> {
         let secret = google_apis::get_app_secret()?;
         let conn = database::get_db_connection()?;
         let ps = ColorPrintState::default();
 
         Ok(Application {
+            options,
             secret,
             conn,
             ps
@@ -105,13 +136,17 @@ impl Application {
         })?;
 
         account.data.root_folder_id = root_id;
+        account.data.last_sync = Some(Utc::now());
         account.save_to_json()?;
         Ok(())
     }
 
 
     /// Synchronize the database with recent changes in this account.
-    pub fn sync_account(&mut self, email: &str, account: &mut Account) -> Result<()> {
+    ///
+    /// Note that this doesn't set `data.last_sync`, since its caller has a
+    /// `now` object handy — this is pure laziness.
+    fn sync_account(&mut self, email: &str, account: &mut Account) -> Result<()> {
         let the_account_id = account.data.db_id; // borrowck fun
 
         let token = account.data.change_page_token.take().ok_or(
@@ -209,11 +244,37 @@ impl Application {
     }
 
 
-    /// Synchronize the database with recent changes to all accounts.
-    pub fn sync_all_accounts(&mut self) -> Result<()> {
+    /// Maybe synchronize the database with the cloud, depending on the
+    /// `--sync` option.
+    ///
+    /// Ideally, the UX here would not print anything at first, but if the
+    /// sync starts taking more than ~1 second, would print "synchronizing
+    /// ...". That way the user knows what's going on if the program stalls,
+    /// but we avoid chatter in the (common?) case that the sync is quick.
+    pub fn maybe_sync_all_accounts(&mut self) -> Result<()> {
+        // Could make this configurable?
+        let resync_delay = Duration::minutes(5);
+
         for maybe_info in accounts::get_accounts()? {
+            let now: DateTime<Utc> = Utc::now();
             let (email, mut account) = maybe_info?;
-            self.sync_account(&email, &mut account)?;
+
+            let should_sync = match self.options.sync {
+                SyncOption::No => false,
+                SyncOption::Yes => true,
+                SyncOption::Auto => {
+                    if let Some(last_sync) = account.data.last_sync.as_ref() {
+                        now.signed_duration_since(*last_sync) > resync_delay
+                    } else {
+                        true
+                    }
+                },
+            };
+
+            if should_sync {
+                account.data.last_sync = Some(now);
+                self.sync_account(&email, &mut account)?;
+            }
         }
 
         Ok(())

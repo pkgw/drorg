@@ -3,6 +3,7 @@
 
 //! State regarding the logged-in accounts.
 
+use chrono::{DateTime, Utc};
 use serde_json;
 use std::fs;
 use std::path::PathBuf;
@@ -30,6 +31,9 @@ pub struct AccountData {
 
     /// The identifying ID of this account in the SQLite database.
     pub db_id: i32,
+
+    /// The last time this account was successfully synced with the cloud.
+    pub last_sync: Option<DateTime<Utc>>,
 }
 
 
