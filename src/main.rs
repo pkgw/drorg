@@ -95,7 +95,7 @@ impl DrorgInfoOptions {
                 tcprintln!(app.ps, (""));
             }
 
-            tcprintln!(app.ps, [green: "Name:"], ("      {}", doc.name));
+            tcprintln!(app.ps, [hl: "Name:"], ("      "), [green: "{}", doc.name]);
             tcprintln!(app.ps, [hl: "MIME-type:"], (" {}", doc.mime_type));
             tcprintln!(app.ps, [hl: "Modified:"], ("  {}", doc.utc_mod_time().to_rfc3339()));
             tcprintln!(app.ps, [hl: "ID:"], ("        {}", doc.id));
