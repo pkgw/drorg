@@ -317,6 +317,29 @@ impl DrorgOpenOptions {
 }
 
 
+/// List recently-used documents.
+#[derive(Debug, StructOpt)]
+pub struct DrorgRecentOptions {
+    #[structopt(short="n", help="Limit output to this many documents", default_value="10")]
+    limit: i64,
+}
+
+impl DrorgRecentOptions {
+    fn cli(self, mut app: Application) -> Result<i32> {
+        use schema::docs::dsl::*;
+
+        app.maybe_sync_all_accounts()?;
+
+        let listing = docs.order(modified_time.desc())
+            .limit(self.limit)
+            .load::<database::Doc>(&app.conn)?;
+
+        app.print_doc_list(listing);
+        Ok(0)
+    }
+}
+
+
 /// Synchronize with the cloud.
 #[derive(Debug, StructOpt)]
 pub struct DrorgSyncOptions {
@@ -370,6 +393,10 @@ pub enum DrorgSubcommand {
     /// Open a document in a web browser
     Open(DrorgOpenOptions),
 
+    #[structopt(name = "recent")]
+    /// List recently-used documents
+    Recent(DrorgRecentOptions),
+
     #[structopt(name = "sync")]
     /// Synchronize with the cloud
     Sync(DrorgSyncOptions),
@@ -397,6 +424,7 @@ impl DrorgCli {
             DrorgSubcommand::List(opts) => opts.cli(app),
             DrorgSubcommand::Login(opts) => opts.cli(app),
             DrorgSubcommand::Open(opts) => opts.cli(app),
+            DrorgSubcommand::Recent(opts) => opts.cli(app),
             DrorgSubcommand::Sync(opts) => opts.cli(app),
         }
     }

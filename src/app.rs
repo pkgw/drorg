@@ -279,6 +279,41 @@ impl Application {
 
         Ok(())
     }
+
+
+    /// Print out a list of documents.
+    ///
+    /// Many TODOs!
+    pub fn print_doc_list(&mut self, docs: Vec<database::Doc>) {
+        use chrono::Utc;
+        let now = Utc::now();
+
+        let n = docs.len();
+        let n_width = format!("{}", n).len(); // <= lame
+        let mut max_name_len = 0;
+
+        for doc in &docs {
+            max_name_len = std::cmp::max(max_name_len, doc.name.len());
+        }
+
+        let mut i = 1;
+
+        for doc in &docs {
+            let ago = now.signed_duration_since(doc.utc_mod_time());
+            let ago = ago.to_std().map(
+                |stddur| timeago::Formatter::new().convert(stddur)
+            ).unwrap_or_else(
+                |_err| "[future?]".to_owned()
+            );
+
+            tcprintln!(self.ps,
+                       [red: "%{1:<0$}", n_width, i],
+                       ("  {1:<0$}  {2}", max_name_len, doc.name, ago)
+            );
+
+            i += 1;
+        }
+    }
 }
 
 
