@@ -28,7 +28,9 @@ extern crate yup_oauth2;
 use diesel::prelude::*;
 use std::ffi::OsStr;
 use std::process;
+use std::result::Result as StdResult;
 use structopt::StructOpt;
+use tcprint::{BasicColors, ColorPrintState};
 
 mod accounts;
 mod app;
@@ -70,22 +72,18 @@ fn open_url<S: AsRef<OsStr>>(url: S) -> Result<()> {
 /// Show detailed information about one or more documents.
 #[derive(Debug, StructOpt)]
 pub struct DrorgInfoOptions {
-    #[structopt(help = "A document name, or fragment thereof")]
-    stem: String,
+    #[structopt(help = "A document specifier (name, ID, ...)")]
+    spec: String,
 }
 
 impl DrorgInfoOptions {
-    fn cli(self, mut app: Application) -> Result<i32> {
+    fn cli(self, app: &mut Application) -> Result<i32> {
         use std::collections::HashMap;
-        use schema::docs::dsl::*;
 
         app.maybe_sync_all_accounts()?;
 
         let mut linkages = HashMap::new();
-
-        let pattern = format!("%{}%", self.stem);
-        let results = docs.filter(name.like(&pattern))
-            .load::<database::Doc>(&app.conn)?;
+        let results = app.get_docs().process(&self.spec)?; // note: avoid name clash with db table
         let mut first = true;
 
         for doc in results {
@@ -131,6 +129,7 @@ impl DrorgInfoOptions {
                 for p in link_table.find_parent_paths(&doc.id).iter().map(|id_path| {
                     // This is not efficient, and it's panicky, but meh.
                     let names: Vec<_> = id_path.iter().map(|docid| {
+                        use schema::docs::dsl::*;
                         let elem = docs.filter(id.eq(&docid))
                             .first::<database::Doc>(&app.conn).unwrap();
                         elem.name.clone()
@@ -161,34 +160,30 @@ impl DrorgInfoOptions {
 }
 
 
-/// Temp? List documents.
+/// List documents.
 #[derive(Debug, StructOpt)]
-pub struct DrorgListOptions {}
+pub struct DrorgListOptions {
+    #[structopt(help = "A document specifier (name, ID, ...)", required_unless = "all")]
+    spec: Option<String>,
+
+    #[structopt(long = "all",
+                help = "List all documents in the database",
+                conflicts_with = "spec"
+    )]
+    all: bool,
+}
 
 impl DrorgListOptions {
-    fn cli(self, mut app: Application) -> Result<i32> {
-        use chrono::Utc;
-        use schema::docs::dsl::*;
-
+    fn cli(self, app: &mut Application) -> Result<i32> {
         app.maybe_sync_all_accounts()?;
 
-        let now = Utc::now();
+        let results = if self.all {
+            app.get_docs().all()
+        } else {
+            app.get_docs().process(&self.spec.unwrap())
+        }?;
 
-        for doc in docs.load::<database::Doc>(&app.conn)? {
-            let star = if doc.starred { "*" } else { " " };
-            let trash = if doc.trashed { "T" } else { " " };
-            let is_folder = if doc.is_folder() { "F" } else { " " };
-
-            let ago = now.signed_duration_since(doc.utc_mod_time());
-            let ago = ago.to_std().map(
-                |stddur| timeago::Formatter::new().convert(stddur)
-            ).unwrap_or_else(
-                |_err| "[future?]".to_owned()
-            );
-
-            tcprintln!(app.ps, ("   {}{}{} {} ({})  {}", star, trash, is_folder, doc.name, doc.id, ago));
-        }
-
+        app.print_doc_list(results)?;
         Ok(0)
     }
 }
@@ -212,7 +207,7 @@ impl DrorgLoginOptions {
     /// We want to allow the user to login to multiple accounts
     /// simultaneously. Therefore we set up the authenticator flow with a null
     /// storage, and then add the resulting token to the disk storage.
-    fn cli(self, mut app: Application) -> Result<i32> {
+    fn cli(self, app: &mut Application) -> Result<i32> {
         let mut account = accounts::Account::default();
 
         // First we need to get authorization.
@@ -276,42 +271,16 @@ impl DrorgLoginOptions {
 /// Open a document.
 #[derive(Debug, StructOpt)]
 pub struct DrorgOpenOptions {
-    #[structopt(help = "A piece of the document name")]
-    stem: String,
+    #[structopt(help = "A document specifier (name, ID, ...)")]
+    spec: String,
 }
 
 impl DrorgOpenOptions {
-    fn cli(self, mut app: Application) -> Result<i32> {
+    fn cli(self, app: &mut Application) -> Result<i32> {
         app.maybe_sync_all_accounts()?;
 
-        let pattern = format!("%{}%", self.stem);
-
-        use schema::docs::dsl::*;
-
-        let results = docs.filter(name.like(&pattern))
-            .load::<database::Doc>(&app.conn)?;
-
-        let url = match results.len() {
-            0 => {
-                tcreport!(app.ps, error: "no known document names matched the pattern \"{}\"", self.stem);
-                return Ok(1);
-            },
-
-            1 => results[0].open_url(),
-
-            _n => {
-                tcreport!(app.ps, error: "multiple documents matched the pattern \"{}\":", self.stem);
-                tcprintln!(app.ps, (""));
-                for r in results {
-                    tcprintln!(app.ps, ("   {}", r.name));
-                }
-                tcprintln!(app.ps, (""));
-                tcprintln!(app.ps, ("Please use a more specific filter."));
-                return Ok(1);
-            }
-        };
-
-        open_url(url)?;
+        let doc = app.get_docs().process_one(self.spec)?;
+        open_url(doc.open_url())?;
         Ok(0)
     }
 }
@@ -325,7 +294,7 @@ pub struct DrorgRecentOptions {
 }
 
 impl DrorgRecentOptions {
-    fn cli(self, mut app: Application) -> Result<i32> {
+    fn cli(self, app: &mut Application) -> Result<i32> {
         use schema::docs::dsl::*;
 
         app.maybe_sync_all_accounts()?;
@@ -334,7 +303,7 @@ impl DrorgRecentOptions {
             .limit(self.limit)
             .load::<database::Doc>(&app.conn)?;
 
-        app.print_doc_list(listing);
+        app.print_doc_list(listing)?;
         Ok(0)
     }
 }
@@ -348,7 +317,7 @@ pub struct DrorgSyncOptions {
 }
 
 impl DrorgSyncOptions {
-    fn cli(self, mut app: Application) -> Result<i32> {
+    fn cli(self, app: &mut Application) -> Result<i32> {
         if !self.rebuild {
             // Lightweight sync
             app.options.sync = app::SyncOption::Yes;
@@ -382,7 +351,7 @@ pub enum DrorgSubcommand {
     Info(DrorgInfoOptions),
 
     #[structopt(name = "list")]
-    /// List documents
+    /// List documents in a compact format
     List(DrorgListOptions),
 
     #[structopt(name = "login")]
@@ -416,17 +385,22 @@ pub struct DrorgCli {
 
 
 impl DrorgCli {
-    fn cli(self) -> Result<i32> {
-        let app = Application::initialize(self.app_opts)?;
+    fn cli(self) -> StdResult<i32, (failure::Error, Option<ColorPrintState<BasicColors>>)> {
+        let mut app = match Application::initialize(self.app_opts) {
+            Ok(a) => a,
+            Err(e) => return Err((e, None)), // no colors :-(
+        };
 
-        match self.command {
-            DrorgSubcommand::Info(opts) => opts.cli(app),
-            DrorgSubcommand::List(opts) => opts.cli(app),
-            DrorgSubcommand::Login(opts) => opts.cli(app),
-            DrorgSubcommand::Open(opts) => opts.cli(app),
-            DrorgSubcommand::Recent(opts) => opts.cli(app),
-            DrorgSubcommand::Sync(opts) => opts.cli(app),
-        }
+        let result = match self.command {
+            DrorgSubcommand::Info(opts) => opts.cli(&mut app),
+            DrorgSubcommand::List(opts) => opts.cli(&mut app),
+            DrorgSubcommand::Login(opts) => opts.cli(&mut app),
+            DrorgSubcommand::Open(opts) => opts.cli(&mut app),
+            DrorgSubcommand::Recent(opts) => opts.cli(&mut app),
+            DrorgSubcommand::Sync(opts) => opts.cli(&mut app),
+        };
+
+        result.map_err(|e| (e, Some(app.ps)))
     }
 }
 
@@ -437,11 +411,19 @@ fn main() {
     process::exit(match program.cli() {
         Ok(code) => code,
 
-        Err(e) => {
-            eprintln!("fatal error in drorg");
-            for cause in e.iter_chain() {
-                eprintln!("  caused by: {}", cause);
+        Err((e, maybe_ps)) => {
+            if let Some(mut ps) = maybe_ps {
+                tcprintln!(ps, [red: "fatal error"], (" in drorg"));
+                for cause in e.iter_chain() {
+                    tcprintln!(ps, ("  "), [red: "caused by:"], (" {}", cause));
+                }
+            } else {
+                eprintln!("fatal error in drorg");
+                for cause in e.iter_chain() {
+                    eprintln!("  caused by: {}", cause);
+                }
             }
+
             1
         },
     });

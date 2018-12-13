@@ -250,3 +250,46 @@ impl<'a> NewAccountAssociation<'a> {
         NewAccountAssociation { doc_id, account_id }
     }
 }
+
+
+/// An document that has been entered in some list.
+#[derive(Debug, PartialEq, Queryable)]
+pub struct ListItem {
+    /// The listing ID of this row.
+    ///
+    /// TBD: at the moment, there is not unique identifiable table of listing
+    /// ID's. ID 0 is the list of documents that was last printed in the UI.
+    pub listing_id: i32,
+
+    /// The 0-based position of this row in the listing.
+    pub position: i32,
+
+    /// The document ID of the document in this row.
+    pub doc_id: String,
+}
+
+
+/// In the `ListItems` table, the listing_id corresponding to the list of
+/// documents that was most recently printed out in an invocation of the CLI.
+pub const CLI_LAST_PRINT_ID: i32 = 0;
+
+/// Data representing a new list-item row to insert into the database.
+#[derive(Debug, Insertable, PartialEq)]
+#[table_name = "listitems"]
+pub struct NewListItem<'a> {
+    /// The listing ID of this row.
+    pub listing_id: i32,
+
+    /// The 0-based position of this row in the listing.
+    pub position: i32,
+
+    /// The document ID of the document in this row.
+    pub doc_id: &'a str,
+}
+
+impl<'a> NewListItem<'a> {
+    /// Create a new list item record.
+    pub fn new(listing_id: i32, position: i32, doc_id: &'a str) -> NewListItem<'a> {
+        NewListItem { listing_id, position, doc_id }
+    }
+}
