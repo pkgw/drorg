@@ -532,6 +532,7 @@ impl<'a> GetDocBuilder<'a> {
         }
 
         // Partial doc name match?
+        // TODO: ESCAPING
         let pattern = format!("%{}%", spec);
         let results = docs.filter(name.like(&pattern))
             .load::<Doc>(&self.app.conn)?;
