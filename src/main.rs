@@ -160,37 +160,30 @@ impl DrorgInfoOptions {
 }
 
 
-/// Temp? List documents.
+/// List documents.
 #[derive(Debug, StructOpt)]
 pub struct DrorgListOptions {
-    #[structopt(help = "A document specifier (name, ID, ...)")]
-    spec: String,
+    #[structopt(help = "A document specifier (name, ID, ...)", required_unless = "all")]
+    spec: Option<String>,
+
+    #[structopt(long = "all",
+                help = "List all documents in the database",
+                conflicts_with = "spec"
+    )]
+    all: bool,
 }
 
 impl DrorgListOptions {
     fn cli(self, app: &mut Application) -> Result<i32> {
-        use chrono::Utc;
-        let now = Utc::now();
-
         app.maybe_sync_all_accounts()?;
 
-        let results = app.get_docs().process(&self.spec)?;
+        let results = if self.all {
+            app.get_docs().all()
+        } else {
+            app.get_docs().process(&self.spec.unwrap())
+        }?;
 
-        for doc in results {
-            let star = if doc.starred { "*" } else { " " };
-            let trash = if doc.trashed { "T" } else { " " };
-            let is_folder = if doc.is_folder() { "F" } else { " " };
-
-            let ago = now.signed_duration_since(doc.utc_mod_time());
-            let ago = ago.to_std().map(
-                |stddur| timeago::Formatter::new().convert(stddur)
-            ).unwrap_or_else(
-                |_err| "[future?]".to_owned()
-            );
-
-            tcprintln!(app.ps, ("   {}{}{} {} ({})  {}", star, trash, is_folder, doc.name, doc.id, ago));
-        }
-
+        app.print_doc_list(results);
         Ok(0)
     }
 }
@@ -358,7 +351,7 @@ pub enum DrorgSubcommand {
     Info(DrorgInfoOptions),
 
     #[structopt(name = "list")]
-    /// List documents
+    /// List documents in a compact format
     List(DrorgListOptions),
 
     #[structopt(name = "login")]

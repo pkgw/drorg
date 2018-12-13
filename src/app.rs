@@ -591,4 +591,12 @@ impl<'a> GetDocBuilder<'a> {
         return Err(format_err!("specification should have matched exactly one document; \
                                 please be more specific"));
     }
+
+    /// Return a vector of all documents.
+    ///
+    /// This is just some syntactic sugar.
+    pub fn all(self) -> Result<Vec<Doc>> {
+        use schema::docs::dsl::*;
+        Ok(docs.load(&self.app.conn)?)
+    }
 }
