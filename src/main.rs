@@ -183,7 +183,7 @@ impl DrorgListOptions {
             app.get_docs().process(&self.spec.unwrap())
         }?;
 
-        app.print_doc_list(results);
+        app.print_doc_list(results)?;
         Ok(0)
     }
 }
@@ -303,7 +303,7 @@ impl DrorgRecentOptions {
             .limit(self.limit)
             .load::<database::Doc>(&app.conn)?;
 
-        app.print_doc_list(listing);
+        app.print_doc_list(listing)?;
         Ok(0)
     }
 }

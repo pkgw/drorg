@@ -31,13 +31,23 @@ table! {
     }
 }
 
+table! {
+    listitems (listing_id, position) {
+        listing_id -> Integer,
+        position -> Integer,
+        doc_id -> Text,
+    }
+}
+
 joinable!(account_associations -> accounts (account_id));
 joinable!(account_associations -> docs (doc_id));
 joinable!(links -> accounts (account_id));
+joinable!(listitems -> docs (doc_id));
 
 allow_tables_to_appear_in_same_query!(
     account_associations,
     accounts,
     docs,
     links,
+    listitems,
 );

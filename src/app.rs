@@ -284,7 +284,27 @@ impl Application {
     /// Print out a list of documents.
     ///
     /// Many TODOs!
-    pub fn print_doc_list(&mut self, docs: Vec<Doc>) {
+    pub fn print_doc_list(&mut self, docs: Vec<Doc>) -> Result<()> {
+        // Get it all into the database first.
+
+        {
+            use schema::listitems::dsl::*;
+            use database::{CLI_LAST_PRINT_ID, NewListItem};
+
+            diesel::delete(listitems.filter(listing_id.eq(CLI_LAST_PRINT_ID)))
+                .execute(&self.conn)?;
+
+            let rows: Vec<_> = docs.iter().enumerate().map(
+                |(i, doc)| NewListItem::new(CLI_LAST_PRINT_ID, i as i32, &doc.id)
+            ).collect();
+
+            diesel::insert_into(listitems)
+                .values(&rows)
+                .execute(&self.conn)?;
+        }
+
+        // Now print it out.
+
         use chrono::Utc;
         let now = Utc::now();
 
@@ -313,6 +333,8 @@ impl Application {
 
             i += 1;
         }
+
+        Ok(())
     }
 }
 
@@ -531,6 +553,31 @@ impl<'a> GetDocBuilder<'a> {
             return Ok(vec![doc]);
         }
 
+        // recent-listing reference?
+
+        if spec.starts_with("%") {
+            use schema::listitems::dsl::*;
+            use database::{CLI_LAST_PRINT_ID, ListItem};
+
+            let number_text = &spec[1..];
+            let index = number_text.parse::<i32>()? - 1; // 1-based to 0-based
+            let maybe_row = listitems.filter(listing_id.eq(CLI_LAST_PRINT_ID)
+                                             .and(position.eq(index)))
+                .first::<ListItem>(&self.app.conn)
+                .optional()?;
+
+            let matched_id = match maybe_row {
+                Some(row) => row.doc_id,
+                None => {
+                    return Err(format_err!("\"{}\" is not a valid recent-document reference", spec));
+                }
+            };
+
+            let doc = docs.filter(id.eq(matched_id))
+                .first(&self.app.conn)?;
+            return Ok(vec![doc]);
+        }
+
         // Partial doc name match?
         // TODO: ESCAPING
         let pattern = format!("%{}%", spec);
@@ -586,7 +633,10 @@ impl<'a> GetDocBuilder<'a> {
             tcreport!(self.app.ps, error: "{} documents matched the specification \"{}\"\n", n, spec);
         }
 
-        self.app.print_doc_list(r);
+        if let Err(e) = self.app.print_doc_list(r) {
+            tcreport!(self.app.ps, error: "furthermore, could not access database: {}", e);
+        }
+
         tcprintln!(self.app.ps, (""));
         return Err(format_err!("specification should have matched exactly one document; \
                                 please be more specific"));
