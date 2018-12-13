@@ -70,22 +70,18 @@ fn open_url<S: AsRef<OsStr>>(url: S) -> Result<()> {
 /// Show detailed information about one or more documents.
 #[derive(Debug, StructOpt)]
 pub struct DrorgInfoOptions {
-    #[structopt(help = "A document name, or fragment thereof")]
-    stem: String,
+    #[structopt(help = "A document specifier (name, ID, ...)")]
+    spec: String,
 }
 
 impl DrorgInfoOptions {
     fn cli(self, mut app: Application) -> Result<i32> {
         use std::collections::HashMap;
-        use schema::docs::dsl::*;
 
         app.maybe_sync_all_accounts()?;
 
         let mut linkages = HashMap::new();
-
-        let pattern = format!("%{}%", self.stem);
-        let results = docs.filter(name.like(&pattern))
-            .load::<database::Doc>(&app.conn)?;
+        let results = app.get_docs().process(&self.spec)?; // note: avoid name clash with db table
         let mut first = true;
 
         for doc in results {
@@ -131,6 +127,7 @@ impl DrorgInfoOptions {
                 for p in link_table.find_parent_paths(&doc.id).iter().map(|id_path| {
                     // This is not efficient, and it's panicky, but meh.
                     let names: Vec<_> = id_path.iter().map(|docid| {
+                        use schema::docs::dsl::*;
                         let elem = docs.filter(id.eq(&docid))
                             .first::<database::Doc>(&app.conn).unwrap();
                         elem.name.clone()
@@ -163,18 +160,21 @@ impl DrorgInfoOptions {
 
 /// Temp? List documents.
 #[derive(Debug, StructOpt)]
-pub struct DrorgListOptions {}
+pub struct DrorgListOptions {
+    #[structopt(help = "A document specifier (name, ID, ...)")]
+    spec: String,
+}
 
 impl DrorgListOptions {
     fn cli(self, mut app: Application) -> Result<i32> {
         use chrono::Utc;
-        use schema::docs::dsl::*;
+        let now = Utc::now();
 
         app.maybe_sync_all_accounts()?;
 
-        let now = Utc::now();
+        let results = app.get_docs().process(&self.spec)?;
 
-        for doc in docs.load::<database::Doc>(&app.conn)? {
+        for doc in results {
             let star = if doc.starred { "*" } else { " " };
             let trash = if doc.trashed { "T" } else { " " };
             let is_folder = if doc.is_folder() { "F" } else { " " };
@@ -276,42 +276,16 @@ impl DrorgLoginOptions {
 /// Open a document.
 #[derive(Debug, StructOpt)]
 pub struct DrorgOpenOptions {
-    #[structopt(help = "A piece of the document name")]
-    stem: String,
+    #[structopt(help = "A document specifier (name, ID, ...)")]
+    spec: String,
 }
 
 impl DrorgOpenOptions {
     fn cli(self, mut app: Application) -> Result<i32> {
         app.maybe_sync_all_accounts()?;
 
-        let pattern = format!("%{}%", self.stem);
-
-        use schema::docs::dsl::*;
-
-        let results = docs.filter(name.like(&pattern))
-            .load::<database::Doc>(&app.conn)?;
-
-        let url = match results.len() {
-            0 => {
-                tcreport!(app.ps, error: "no known document names matched the pattern \"{}\"", self.stem);
-                return Ok(1);
-            },
-
-            1 => results[0].open_url(),
-
-            _n => {
-                tcreport!(app.ps, error: "multiple documents matched the pattern \"{}\":", self.stem);
-                tcprintln!(app.ps, (""));
-                for r in results {
-                    tcprintln!(app.ps, ("   {}", r.name));
-                }
-                tcprintln!(app.ps, (""));
-                tcprintln!(app.ps, ("Please use a more specific filter."));
-                return Ok(1);
-            }
-        };
-
-        open_url(url)?;
+        let doc = app.get_docs().process_one(self.spec)?;
+        open_url(doc.open_url())?;
         Ok(0)
     }
 }

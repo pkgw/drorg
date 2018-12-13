@@ -13,7 +13,7 @@ use tcprint::{BasicColors, ColorPrintState};
 use yup_oauth2::ApplicationSecret;
 
 use accounts::{self, Account};
-use database;
+use database::{self, Doc};
 use errors::Result;
 use google_apis;
 use schema;
@@ -284,7 +284,7 @@ impl Application {
     /// Print out a list of documents.
     ///
     /// Many TODOs!
-    pub fn print_doc_list(&mut self, docs: Vec<database::Doc>) {
+    pub fn print_doc_list(&mut self, docs: Vec<Doc>) {
         use chrono::Utc;
         let now = Utc::now();
 
@@ -479,5 +479,114 @@ impl LinkageTable {
         }
 
         results
+    }
+}
+
+
+/// A struct for specifying how we might parse command-line arguments
+/// specifying zero or more documents.
+pub struct GetDocBuilder<'a> {
+    app: &'a mut Application,
+    zero_ok: bool,
+}
+
+impl Application {
+    /// Start the process of parsing some text into a list of zero or more
+    /// documents.
+    ///
+    /// The default setting is that at least one document must match.
+    pub fn get_docs<'a>(&'a mut self) -> GetDocBuilder<'a> {
+        GetDocBuilder {
+            app: self,
+            zero_ok: false,
+        }
+    }
+}
+
+impl<'a> GetDocBuilder<'a> {
+    /// Specify whether it is OK if the specification matches no documents.
+    ///
+    /// If this setting is false, an Err outcome will be returned by
+    /// the `process*` functions if nothing matches.
+    #[allow(unused)]
+    pub fn zero_ok(mut self, setting: bool) -> Self {
+        self.zero_ok = setting;
+        self
+    }
+
+    /// Convert a single specification string into a list of documents,
+    /// without applying any validation.
+    ///
+    /// If this function returns `Err`, it is because of a genuine problem
+    /// talking to the database or something.
+    fn process_impl(&self, spec: &str) -> Result<Vec<Doc>> {
+        use schema::docs::dsl::*;
+
+        // Docid exact match?
+        let maybe_doc = docs.filter(id.eq(spec))
+            .first(&self.app.conn)
+            .optional()?;
+
+        if let Some(doc) = maybe_doc {
+            return Ok(vec![doc]);
+        }
+
+        // Partial doc name match?
+        let pattern = format!("%{}%", spec);
+        let results = docs.filter(name.like(&pattern))
+            .load::<Doc>(&self.app.conn)?;
+        Ok(results)
+    }
+
+    /// Convert a single specification string into a list of documents.
+    pub fn process<S: AsRef<str>>(self, spec: S) -> Result<Vec<Doc>> {
+        let spec = spec.as_ref();
+        let r = self.process_impl(spec)?;
+
+        if !self.zero_ok && r.len() == 0 {
+            return Err(format_err!("no documents matched the specification \"{}\"", spec));
+        }
+
+        Ok(r)
+    }
+
+    /// Convert a single specification string into a single document.
+    ///
+    /// If not exactly one document matches, an error is raised. In the
+    /// multiple-match case, a listing is printed that is intended to help the
+    /// user narrow down their search.
+    pub fn process_one<S: AsRef<str>>(self, spec: S) -> Result<Doc> {
+        let spec = spec.as_ref();
+        let mut r = self.process_impl(spec)?;
+
+        if r.len() == 0 {
+            return Err(format_err!("no documents matched the specification \"{}\"", spec));
+        }
+
+        if r.len() == 1 {
+            return Ok(r.pop().unwrap());
+        }
+
+        // Multiple documents matched. Print a listing, limiting the number of
+        // printed results in case the listing would be super long.
+
+        let n = r.len();
+        const MAX_TO_PRINT: usize = 20;
+        let truncated = n > MAX_TO_PRINT;
+
+        if truncated {
+            r.truncate(MAX_TO_PRINT);
+        }
+
+        if truncated {
+            tcreport!(self.app.ps, error: "{} documents matched the specification \"{}\"; \
+                                           only printing first {}\n", n, spec, MAX_TO_PRINT);
+        } else {
+            tcreport!(self.app.ps, error: "{} documents matched the specification \"{}\"\n", n, spec);
+        }
+
+        self.app.print_doc_list(r);
+        tcprintln!(self.app.ps, (""));
+        return Err(format_err!("please use a more specific filter"));
     }
 }
