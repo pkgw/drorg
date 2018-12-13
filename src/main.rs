@@ -28,7 +28,9 @@ extern crate yup_oauth2;
 use diesel::prelude::*;
 use std::ffi::OsStr;
 use std::process;
+use std::result::Result as StdResult;
 use structopt::StructOpt;
+use tcprint::{BasicColors, ColorPrintState};
 
 mod accounts;
 mod app;
@@ -75,7 +77,7 @@ pub struct DrorgInfoOptions {
 }
 
 impl DrorgInfoOptions {
-    fn cli(self, mut app: Application) -> Result<i32> {
+    fn cli(self, app: &mut Application) -> Result<i32> {
         use std::collections::HashMap;
 
         app.maybe_sync_all_accounts()?;
@@ -166,7 +168,7 @@ pub struct DrorgListOptions {
 }
 
 impl DrorgListOptions {
-    fn cli(self, mut app: Application) -> Result<i32> {
+    fn cli(self, app: &mut Application) -> Result<i32> {
         use chrono::Utc;
         let now = Utc::now();
 
@@ -212,7 +214,7 @@ impl DrorgLoginOptions {
     /// We want to allow the user to login to multiple accounts
     /// simultaneously. Therefore we set up the authenticator flow with a null
     /// storage, and then add the resulting token to the disk storage.
-    fn cli(self, mut app: Application) -> Result<i32> {
+    fn cli(self, app: &mut Application) -> Result<i32> {
         let mut account = accounts::Account::default();
 
         // First we need to get authorization.
@@ -281,7 +283,7 @@ pub struct DrorgOpenOptions {
 }
 
 impl DrorgOpenOptions {
-    fn cli(self, mut app: Application) -> Result<i32> {
+    fn cli(self, app: &mut Application) -> Result<i32> {
         app.maybe_sync_all_accounts()?;
 
         let doc = app.get_docs().process_one(self.spec)?;
@@ -299,7 +301,7 @@ pub struct DrorgRecentOptions {
 }
 
 impl DrorgRecentOptions {
-    fn cli(self, mut app: Application) -> Result<i32> {
+    fn cli(self, app: &mut Application) -> Result<i32> {
         use schema::docs::dsl::*;
 
         app.maybe_sync_all_accounts()?;
@@ -322,7 +324,7 @@ pub struct DrorgSyncOptions {
 }
 
 impl DrorgSyncOptions {
-    fn cli(self, mut app: Application) -> Result<i32> {
+    fn cli(self, app: &mut Application) -> Result<i32> {
         if !self.rebuild {
             // Lightweight sync
             app.options.sync = app::SyncOption::Yes;
@@ -390,17 +392,22 @@ pub struct DrorgCli {
 
 
 impl DrorgCli {
-    fn cli(self) -> Result<i32> {
-        let app = Application::initialize(self.app_opts)?;
+    fn cli(self) -> StdResult<i32, (failure::Error, Option<ColorPrintState<BasicColors>>)> {
+        let mut app = match Application::initialize(self.app_opts) {
+            Ok(a) => a,
+            Err(e) => return Err((e, None)), // no colors :-(
+        };
 
-        match self.command {
-            DrorgSubcommand::Info(opts) => opts.cli(app),
-            DrorgSubcommand::List(opts) => opts.cli(app),
-            DrorgSubcommand::Login(opts) => opts.cli(app),
-            DrorgSubcommand::Open(opts) => opts.cli(app),
-            DrorgSubcommand::Recent(opts) => opts.cli(app),
-            DrorgSubcommand::Sync(opts) => opts.cli(app),
-        }
+        let result = match self.command {
+            DrorgSubcommand::Info(opts) => opts.cli(&mut app),
+            DrorgSubcommand::List(opts) => opts.cli(&mut app),
+            DrorgSubcommand::Login(opts) => opts.cli(&mut app),
+            DrorgSubcommand::Open(opts) => opts.cli(&mut app),
+            DrorgSubcommand::Recent(opts) => opts.cli(&mut app),
+            DrorgSubcommand::Sync(opts) => opts.cli(&mut app),
+        };
+
+        result.map_err(|e| (e, Some(app.ps)))
     }
 }
 
@@ -411,11 +418,19 @@ fn main() {
     process::exit(match program.cli() {
         Ok(code) => code,
 
-        Err(e) => {
-            eprintln!("fatal error in drorg");
-            for cause in e.iter_chain() {
-                eprintln!("  caused by: {}", cause);
+        Err((e, maybe_ps)) => {
+            if let Some(mut ps) = maybe_ps {
+                tcprintln!(ps, [red: "fatal error"], (" in drorg"));
+                for cause in e.iter_chain() {
+                    tcprintln!(ps, ("  "), [red: "caused by:"], (" {}", cause));
+                }
+            } else {
+                eprintln!("fatal error in drorg");
+                for cause in e.iter_chain() {
+                    eprintln!("  caused by: {}", cause);
+                }
             }
+
             1
         },
     });

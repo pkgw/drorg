@@ -587,6 +587,7 @@ impl<'a> GetDocBuilder<'a> {
 
         self.app.print_doc_list(r);
         tcprintln!(self.app.ps, (""));
-        return Err(format_err!("please use a more specific filter"));
+        return Err(format_err!("specification should have matched exactly one document; \
+                                please be more specific"));
     }
 }
