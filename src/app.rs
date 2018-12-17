@@ -281,6 +281,19 @@ impl Application {
     }
 
 
+    /// Convert an iterator of document IDs into Doc structures
+    ///
+    /// ## Panics
+    ///
+    /// If any of the IDs are not found in the database!
+    pub fn ids_to_docs<I: IntoIterator<Item = V>, V: AsRef<str>>(&mut self, ids: I) -> Vec<Doc> {
+        ids.into_iter().map(|docid| {
+            use schema::docs::dsl::*;
+            docs.filter(id.eq(&docid.as_ref()))
+                .first::<database::Doc>(&self.conn).unwrap()
+        }).collect()
+    }
+
     /// Print out a list of documents.
     ///
     /// Many TODOs!

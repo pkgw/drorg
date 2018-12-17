@@ -8,6 +8,8 @@ use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use google_drive3;
 
+use app::Application;
+use database;
 use errors::Result;
 use schema::*;
 
@@ -111,6 +113,16 @@ impl Doc {
     /// Return true if this document is a folder.
     pub fn is_folder(&self) -> bool {
         self.mime_type == "application/vnd.google-apps.folder"
+    }
+
+    /// Discover which accounts this document is associated with.
+    pub fn accounts(&self, app: &mut Application) -> Result<Vec<database::Account>> {
+        use schema::account_associations::dsl::*;
+        let associations = account_associations.inner_join(accounts::table)
+            .filter(doc_id.eq(&self.id))
+            .load::<(database::AccountAssociation, database::Account)>(&app.conn)?;
+        let accounts: Vec<_> = associations.iter().map(|(_assoc, account)| account.clone()).collect();
+        Ok(accounts)
     }
 }
 
