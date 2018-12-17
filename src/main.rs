@@ -30,10 +30,11 @@ use std::ffi::OsStr;
 use std::process;
 use std::result::Result as StdResult;
 use structopt::StructOpt;
-use tcprint::{BasicColors, ColorPrintState};
+use tcprint::ColorPrintState;
 
 mod accounts;
 mod app;
+mod colors;
 mod database;
 mod errors;
 mod google_apis;
@@ -41,6 +42,7 @@ mod schema;
 mod token_storage;
 
 use app::Application;
+use colors::Colors;
 use errors::Result;
 
 
@@ -100,18 +102,7 @@ impl DrorgInfoOptions {
             tcprintln!(app.ps, [hl: "Starred?:"], ("  {}", if doc.starred { "yes" } else { "no" }));
             tcprintln!(app.ps, [hl: "Trashed?:"], ("  {}", if doc.trashed { "yes" } else { "no" }));
 
-            // Which accounts is this file associated with? This tells us
-            // which linkage tables we need.
-
-            let accounts = {
-                use schema::account_associations::dsl::*;
-                let associations = account_associations.inner_join(schema::accounts::table)
-                    .filter(doc_id.eq(&doc.id))
-                    .load::<(database::AccountAssociation, database::Account)>(&app.conn)?;
-                let accounts: Vec<_> = associations.iter().map(|(_assoc, account)| account.clone()).collect();
-                accounts
-            };
-
+            let accounts = doc.accounts(app)?;
             let mut path_reprs = Vec::new();
 
             for acct in &accounts {
@@ -268,6 +259,68 @@ impl DrorgLoginOptions {
 }
 
 
+/// List the files in a folder.
+///
+/// TODO: this name is going to be super confusing compared to `list`.
+#[derive(Debug, StructOpt)]
+pub struct DrorgLsOptions {
+    #[structopt(help = "A folder specifier (name, ID, ...)")]
+    spec: String,
+}
+
+impl DrorgLsOptions {
+    fn cli(self, app: &mut Application) -> Result<i32> {
+        use std::collections::HashSet;
+
+        app.maybe_sync_all_accounts()?;
+
+        let doc = app.get_docs().process_one(self.spec)?;
+
+        // We *could* just proceed and see if there's anything that Drive
+        // thinks is a child of this doc, but it seems like the more sensible
+        // UX is to make this a hard failure. You could imagine adding a CLI
+        // option to override this behavior.
+
+        if !doc.is_folder() {
+            return Err(format_err!("the selected document is not a folder"));
+        }
+
+        // This is another operation which can be surprising when you think
+        // about the behavior when a doc belongs to more than one account. We
+        // find children for each account separately and merge the results.
+
+        let accounts = doc.accounts(app)?;
+        let mut child_ids = HashSet::new();
+
+        if accounts.len() > 1 {
+            tcreport!(app.ps, warning: "folder belongs to multiple accounts; \
+                                        their listings will be merged");
+        }
+
+        for acct in &accounts {
+            let table = app.load_linkage_table(acct.id, false)?;
+            let node = match table.nodes.get(&doc.id) {
+                Some(n) => *n,
+                None => continue,
+            };
+
+            for child_idx in table.graph.neighbors(node) {
+                child_ids.insert(table.graph[child_idx].clone());
+            }
+        }
+
+        // Is this the best ordering?
+
+        let mut docs = app.ids_to_docs(&child_ids);
+        docs.sort_by_key(|d| d.utc_mod_time());
+        docs.reverse();
+        app.print_doc_list(docs)?;
+
+        Ok(0)
+    }
+}
+
+
 /// Open a document.
 #[derive(Debug, StructOpt)]
 pub struct DrorgOpenOptions {
@@ -351,12 +404,16 @@ pub enum DrorgSubcommand {
     Info(DrorgInfoOptions),
 
     #[structopt(name = "list")]
-    /// List documents in a compact format
+    /// List documents in a compact format (note: `ls` is different)
     List(DrorgListOptions),
 
     #[structopt(name = "login")]
     /// Add a Google account to be monitored
     Login(DrorgLoginOptions),
+
+    #[structopt(name = "ls")]
+    /// List files in a folder (note: `list` is different)
+    Ls(DrorgLsOptions),
 
     #[structopt(name = "open")]
     /// Open a document in a web browser
@@ -385,7 +442,7 @@ pub struct DrorgCli {
 
 
 impl DrorgCli {
-    fn cli(self) -> StdResult<i32, (failure::Error, Option<ColorPrintState<BasicColors>>)> {
+    fn cli(self) -> StdResult<i32, (failure::Error, Option<ColorPrintState<Colors>>)> {
         let mut app = match Application::initialize(self.app_opts) {
             Ok(a) => a,
             Err(e) => return Err((e, None)), // no colors :-(
@@ -395,6 +452,7 @@ impl DrorgCli {
             DrorgSubcommand::Info(opts) => opts.cli(&mut app),
             DrorgSubcommand::List(opts) => opts.cli(&mut app),
             DrorgSubcommand::Login(opts) => opts.cli(&mut app),
+            DrorgSubcommand::Ls(opts) => opts.cli(&mut app),
             DrorgSubcommand::Open(opts) => opts.cli(&mut app),
             DrorgSubcommand::Recent(opts) => opts.cli(&mut app),
             DrorgSubcommand::Sync(opts) => opts.cli(&mut app),

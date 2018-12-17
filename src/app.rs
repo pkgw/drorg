@@ -9,10 +9,11 @@ use diesel::sqlite::SqliteConnection;
 use petgraph::prelude::*;
 use std::collections::HashMap;
 use structopt::StructOpt;
-use tcprint::{BasicColors, ColorPrintState};
+use tcprint::ColorPrintState;
 use yup_oauth2::ApplicationSecret;
 
 use accounts::{self, Account};
+use colors::Colors;
 use database::{self, Doc};
 use errors::Result;
 use google_apis;
@@ -56,7 +57,7 @@ pub struct Application {
     pub conn: SqliteConnection,
 
     /// The state object for colorized terminal output.
-    pub ps: ColorPrintState<BasicColors>,
+    pub ps: ColorPrintState<Colors>,
 }
 
 
@@ -281,6 +282,19 @@ impl Application {
     }
 
 
+    /// Convert an iterator of document IDs into Doc structures
+    ///
+    /// ## Panics
+    ///
+    /// If any of the IDs are not found in the database!
+    pub fn ids_to_docs<I: IntoIterator<Item = V>, V: AsRef<str>>(&mut self, ids: I) -> Vec<Doc> {
+        ids.into_iter().map(|docid| {
+            use schema::docs::dsl::*;
+            docs.filter(id.eq(&docid.as_ref()))
+                .first::<database::Doc>(&self.conn).unwrap()
+        }).collect()
+    }
+
     /// Print out a list of documents.
     ///
     /// Many TODOs!
@@ -326,10 +340,19 @@ impl Application {
                 |_err| "[future?]".to_owned()
             );
 
-            tcprintln!(self.ps,
-                       [red: "%{1:<0$}", n_width, i],
-                       ("  {1:<0$}  {2}", max_name_len, doc.name, ago)
-            );
+            if doc.is_folder() {
+                tcprintln!(self.ps,
+                           [percent_tag: "%{1:<0$}", n_width, i],
+                           ("  "),
+                           [folder: "{1:<0$}", max_name_len, doc.name],
+                           ("  {}", ago)
+                );
+            } else {
+                tcprintln!(self.ps,
+                           [percent_tag: "%{1:<0$}", n_width, i],
+                           ("  {1:<0$}  {2}", max_name_len, doc.name, ago)
+                );
+            }
 
             i += 1;
         }
