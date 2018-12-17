@@ -26,7 +26,7 @@
 //!
 //! let mut state = ColorPrintState::<BasicColors>::default();
 //! let q = 17;
-//! tcprintln!(state, [red: "oh no:"], ("q is: {}", q));
+//! tcprintln!(state, [red: "oh no:"], (" q is: {}", q));
 //! ```
 //!
 //! The above will print the line `oh no: q is 17`, where the phrase `oh no:`
@@ -42,6 +42,9 @@
 //! - `(format, args...)` to print without applying colorization
 //! - `[colorname: format, args...]` to print applying the named color
 //!   (see `BasicColors` for a list of what’s available in the simple case)
+//! - `{color_var, {block}: format, args...}` to print applying a color that
+//!   is determined on-the-fly, potentially using local variables to choose
+//!   the color (see `tcprint!()` for examples)
 //!
 //! Along with `tcprintln!()`, macros named `tcprint!()`, `etcprintln!()`, and
 //! `etcprint!()` are provided, all in analogy with the printing macros
@@ -353,6 +356,13 @@ macro_rules! tcanyprint {
         let _r = streams.print_color($dest, &colors.$color, format_args!($($fmt_args),*));
     }};
 
+    (@clause $cps:expr, $dest:expr, {$cvar:ident, $cblock:block : $($fmt_args:expr),*}) => {{
+        use $crate::ColorSpec;
+        let (streams, $cvar) = $cps.split_into_components_mut();
+        let c: &ColorSpec = $cblock;
+        let _r = streams.print_color($dest, c, format_args!($($fmt_args),*));
+    }};
+
     (@clause $cps:expr, $dest:expr, ($($fmt_args:expr),*)) => {{
         let (streams, _colors) = $cps.split_into_components_mut();
         let _r = streams.print_nocolor($dest, format_args!($($fmt_args),*));
@@ -379,6 +389,8 @@ macro_rules! tcanyprint {
 ///
 /// - `(format, args...)` to print without applying colorization
 /// - `[colorname: format, args...]` to print applying the named color
+/// - `{colors_var, block: format, args...}` to print with a color chosen
+///   dynamically by evaluating a code block (see example below)
 ///
 /// In all cases the `format, args...` items are passed through the standard
 /// Rust [string formatting mechanism](https://doc.rust-lang.org/std/fmt/).
@@ -416,6 +428,27 @@ macro_rules! tcanyprint {
 ///    ("ctional")
 /// );
 /// ```
+///
+/// When using the `{}` specifier, the two parameters are the name of
+/// a variable that will be set to your "colors" structure, and a code
+/// block that should evaluate to a `&ColorSpec` that will then be used
+/// for the printing. This way you can choose colors dynamically based
+/// on the values of local variables:
+///
+/// ```
+/// # #[macro_use] extern crate tcprint;
+/// # use tcprint::{BasicColors, ColorPrintState};
+/// # let mut state = ColorPrintState::<BasicColors>::default();
+/// # fn compute_time_left() -> usize { 10 }
+/// let seconds_left = compute_time_left();
+///
+/// tcprint!(state,
+///     {colors, {
+///         if seconds_left < 5 { &colors.red } else { &colors.hl }
+///     }: "{}", seconds_left}, (" seconds left to abort")
+/// );
+/// ```
+
 #[macro_export]
 macro_rules! tcprint {
     ($cps:expr, $($clause:tt),*) => {{
