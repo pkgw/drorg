@@ -30,10 +30,11 @@ use std::ffi::OsStr;
 use std::process;
 use std::result::Result as StdResult;
 use structopt::StructOpt;
-use tcprint::{BasicColors, ColorPrintState};
+use tcprint::ColorPrintState;
 
 mod accounts;
 mod app;
+mod colors;
 mod database;
 mod errors;
 mod google_apis;
@@ -41,6 +42,7 @@ mod schema;
 mod token_storage;
 
 use app::Application;
+use colors::Colors;
 use errors::Result;
 
 
@@ -440,7 +442,7 @@ pub struct DrorgCli {
 
 
 impl DrorgCli {
-    fn cli(self) -> StdResult<i32, (failure::Error, Option<ColorPrintState<BasicColors>>)> {
+    fn cli(self) -> StdResult<i32, (failure::Error, Option<ColorPrintState<Colors>>)> {
         let mut app = match Application::initialize(self.app_opts) {
             Ok(a) => a,
             Err(e) => return Err((e, None)), // no colors :-(

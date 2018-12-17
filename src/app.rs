@@ -9,10 +9,11 @@ use diesel::sqlite::SqliteConnection;
 use petgraph::prelude::*;
 use std::collections::HashMap;
 use structopt::StructOpt;
-use tcprint::{BasicColors, ColorPrintState};
+use tcprint::ColorPrintState;
 use yup_oauth2::ApplicationSecret;
 
 use accounts::{self, Account};
+use colors::Colors;
 use database::{self, Doc};
 use errors::Result;
 use google_apis;
@@ -56,7 +57,7 @@ pub struct Application {
     pub conn: SqliteConnection,
 
     /// The state object for colorized terminal output.
-    pub ps: ColorPrintState<BasicColors>,
+    pub ps: ColorPrintState<Colors>,
 }
 
 
@@ -339,10 +340,19 @@ impl Application {
                 |_err| "[future?]".to_owned()
             );
 
-            tcprintln!(self.ps,
-                       [red: "%{1:<0$}", n_width, i],
-                       ("  {1:<0$}  {2}", max_name_len, doc.name, ago)
-            );
+            if doc.is_folder() {
+                tcprintln!(self.ps,
+                           [percent_tag: "%{1:<0$}", n_width, i],
+                           ("  "),
+                           [folder: "{1:<0$}", max_name_len, doc.name],
+                           ("  {}", ago)
+                );
+            } else {
+                tcprintln!(self.ps,
+                           [percent_tag: "%{1:<0$}", n_width, i],
+                           ("  {1:<0$}  {2}", max_name_len, doc.name, ago)
+                );
+            }
 
             i += 1;
         }
