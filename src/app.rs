@@ -299,6 +299,13 @@ impl Application {
     ///
     /// Many TODOs!
     pub fn print_doc_list(&mut self, docs: Vec<Doc>) -> Result<()> {
+        // If nothing, return -- without clearing the previous cli-last-print
+        // listing, if it exists.
+
+        if docs.len() == 0 {
+            return Ok(());
+        }
+
         // Get it all into the database first.
 
         {
