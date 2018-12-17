@@ -347,7 +347,22 @@ impl Application {
                 |_err| "[future?]".to_owned()
             );
 
-            if doc.is_folder() {
+            // TODO: add a syntax in tcprint to make this simpler ...
+            if doc.trashed {
+                tcprintln!(self.ps,
+                           [percent_tag: "%{1:<0$}", n_width, i],
+                           ("  "),
+                           [red: "{1:<0$}", max_name_len, doc.name],
+                           ("  {}", ago)
+                );
+            } else if doc.starred {
+                tcprintln!(self.ps,
+                           [percent_tag: "%{1:<0$}", n_width, i],
+                           ("  "),
+                           [yellow: "{1:<0$}", max_name_len, doc.name],
+                           ("  {}", ago)
+                );
+            } else if doc.is_folder() {
                 tcprintln!(self.ps,
                            [percent_tag: "%{1:<0$}", n_width, i],
                            ("  "),
