@@ -295,6 +295,28 @@ impl Application {
         }).collect()
     }
 
+    /// Set the virtual working directory that helps provide continuity from
+    /// one CLI invocation to the next.
+    pub fn set_cwd(&mut self, doc: &Doc) -> Result<()> {
+        if !doc.is_folder() {
+            // Maybe this should just be a panic? But we have to return Result anyway
+            return Err(format_err!("cannot set virtual CWD to non-folder \"{}\"", doc.name));
+        }
+
+        use schema::listitems::dsl::*;
+        use database::{CLI_CWD_ID, NewListItem};
+
+        diesel::delete(listitems.filter(listing_id.eq(CLI_CWD_ID)))
+            .execute(&self.conn)?;
+
+        let item = NewListItem::new(CLI_CWD_ID, 0, &doc.id);
+        diesel::insert_into(listitems)
+            .values(&item)
+            .execute(&self.conn)?;
+
+        Ok(())
+    }
+
     /// Print out a list of documents.
     ///
     /// Many TODOs!
@@ -586,8 +608,30 @@ impl<'a> GetDocBuilder<'a> {
             return Ok(vec![doc]);
         }
 
-        // recent-listing reference?
+        // CWD reference?
+        if spec == "." {
+            use schema::docs;
+            use schema::listitems::dsl::*;
+            use database::{CLI_CWD_ID, Doc, ListItem};
 
+            let mut matches = listitems.inner_join(docs::table)
+                .filter(listing_id.eq(CLI_CWD_ID))
+                .load::<(ListItem, Doc)>(&self.app.conn)?;
+            let matches: Vec<_> = matches
+                .drain(0..)
+                .map(|(_row, doc)| doc)
+                .collect();
+
+            // Note: we don't explicitly handle more than one match. Under the
+            // current architecture that should never happen.
+            if matches.len() < 1 {
+                return Err(format_err!("the virtual CWD (\"{}\") is not currently defined", spec));
+            }
+
+            return Ok(matches)
+        }
+
+        // recent-listing reference?
         if spec.starts_with("%") {
             use schema::listitems::dsl::*;
             use database::{CLI_LAST_PRINT_ID, ListItem};
