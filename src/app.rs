@@ -596,7 +596,7 @@ impl<'a> GetDocBuilder<'a> {
     ///
     /// If this function returns `Err`, it is because of a genuine problem
     /// talking to the database or something.
-    fn process_impl(&self, spec: &str) -> Result<Vec<Doc>> {
+    fn process_impl(&mut self, spec: &str) -> Result<Vec<Doc>> {
         use schema::docs::dsl::*;
 
         // Docid exact match?
@@ -629,6 +629,28 @@ impl<'a> GetDocBuilder<'a> {
             }
 
             return Ok(matches)
+        }
+
+        // CWD-parent reference? As usual this is more annoying than you might
+        // think because folders can have multiple parents.
+        if spec == ".." {
+            use std::collections::HashSet;
+
+            // note: if no CWD, we'll get Err, not Ok(vec![]).
+            let cwd = self.process_impl(".")?.pop().unwrap();
+            let accounts = cwd.accounts(self.app)?;
+            let mut parent_ids = HashSet::new();
+
+            for acct in &accounts {
+                let table = self.app.load_linkage_table(acct.id, true)?;
+                for pid in table.find_parent_paths(&cwd.id).iter_mut().map(|id_path| id_path.pop()) {
+                    if let Some(pid) = pid {
+                        parent_ids.insert(pid);
+                    }
+                }
+            }
+
+            return Ok(self.app.ids_to_docs(parent_ids));
         }
 
         // recent-listing reference?
@@ -664,7 +686,7 @@ impl<'a> GetDocBuilder<'a> {
     }
 
     /// Convert a single specification string into a list of documents.
-    pub fn process<S: AsRef<str>>(self, spec: S) -> Result<Vec<Doc>> {
+    pub fn process<S: AsRef<str>>(mut self, spec: S) -> Result<Vec<Doc>> {
         let spec = spec.as_ref();
         let r = self.process_impl(spec)?;
 
@@ -680,7 +702,7 @@ impl<'a> GetDocBuilder<'a> {
     /// If not exactly one document matches, an error is raised. In the
     /// multiple-match case, a listing is printed that is intended to help the
     /// user narrow down their search.
-    pub fn process_one<S: AsRef<str>>(self, spec: S) -> Result<Doc> {
+    pub fn process_one<S: AsRef<str>>(mut self, spec: S) -> Result<Doc> {
         let spec = spec.as_ref();
         let mut r = self.process_impl(spec)?;
 
