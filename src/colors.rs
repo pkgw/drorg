@@ -21,6 +21,9 @@ pub struct Colors {
     /// "Highlight": bold white.
     pub hl: ColorSpec,
 
+    /// A totally plain color; useful in some conditional-coloring scenarios.
+    pub plain: ColorSpec,
+
     /// The color for a "%NN" document short-hand in a listing;
     /// defaults to red.
     pub percent_tag: ColorSpec,
@@ -44,6 +47,8 @@ impl Default for Colors {
         let mut hl = ColorSpec::new();
         hl.set_bold(true);
 
+        let plain = ColorSpec::new();
+
         let mut percent_tag = ColorSpec::new();
         percent_tag.set_fg(Some(Color::Red));
 
@@ -55,6 +60,7 @@ impl Default for Colors {
             yellow,
             red,
             hl,
+            plain,
             percent_tag,
             folder,
         }

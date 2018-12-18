@@ -295,10 +295,39 @@ impl Application {
         }).collect()
     }
 
+    /// Set the virtual working directory that helps provide continuity from
+    /// one CLI invocation to the next.
+    pub fn set_cwd(&mut self, doc: &Doc) -> Result<()> {
+        if !doc.is_folder() {
+            // Maybe this should just be a panic? But we have to return Result anyway
+            return Err(format_err!("cannot set virtual CWD to non-folder \"{}\"", doc.name));
+        }
+
+        use schema::listitems::dsl::*;
+        use database::{CLI_CWD_ID, NewListItem};
+
+        diesel::delete(listitems.filter(listing_id.eq(CLI_CWD_ID)))
+            .execute(&self.conn)?;
+
+        let item = NewListItem::new(CLI_CWD_ID, 0, &doc.id);
+        diesel::insert_into(listitems)
+            .values(&item)
+            .execute(&self.conn)?;
+
+        Ok(())
+    }
+
     /// Print out a list of documents.
     ///
     /// Many TODOs!
     pub fn print_doc_list(&mut self, docs: Vec<Doc>) -> Result<()> {
+        // If nothing, return -- without clearing the previous cli-last-print
+        // listing, if it exists.
+
+        if docs.len() == 0 {
+            return Ok(());
+        }
+
         // Get it all into the database first.
 
         {
@@ -340,19 +369,22 @@ impl Application {
                 |_err| "[future?]".to_owned()
             );
 
-            if doc.is_folder() {
-                tcprintln!(self.ps,
-                           [percent_tag: "%{1:<0$}", n_width, i],
-                           ("  "),
-                           [folder: "{1:<0$}", max_name_len, doc.name],
-                           ("  {}", ago)
-                );
-            } else {
-                tcprintln!(self.ps,
-                           [percent_tag: "%{1:<0$}", n_width, i],
-                           ("  {1:<0$}  {2}", max_name_len, doc.name, ago)
-                );
-            }
+            tcprintln!(self.ps,
+                       [percent_tag: "%{1:<0$}", n_width, i],
+                       ("  "),
+                       {colors, {
+                           if doc.trashed {
+                               &colors.red
+                           } else if doc.starred {
+                               &colors.yellow
+                           } else if doc.is_folder() {
+                               &colors.folder
+                           } else {
+                               &colors.plain
+                           }
+                       }: "{1:<0$}", max_name_len, doc.name},
+                       ("  {}", ago)
+            );
 
             i += 1;
         }
@@ -564,7 +596,7 @@ impl<'a> GetDocBuilder<'a> {
     ///
     /// If this function returns `Err`, it is because of a genuine problem
     /// talking to the database or something.
-    fn process_impl(&self, spec: &str) -> Result<Vec<Doc>> {
+    fn process_impl(&mut self, spec: &str) -> Result<Vec<Doc>> {
         use schema::docs::dsl::*;
 
         // Docid exact match?
@@ -576,8 +608,52 @@ impl<'a> GetDocBuilder<'a> {
             return Ok(vec![doc]);
         }
 
-        // recent-listing reference?
+        // CWD reference?
+        if spec == "." {
+            use schema::docs;
+            use schema::listitems::dsl::*;
+            use database::{CLI_CWD_ID, Doc, ListItem};
 
+            let mut matches = listitems.inner_join(docs::table)
+                .filter(listing_id.eq(CLI_CWD_ID))
+                .load::<(ListItem, Doc)>(&self.app.conn)?;
+            let matches: Vec<_> = matches
+                .drain(0..)
+                .map(|(_row, doc)| doc)
+                .collect();
+
+            // Note: we don't explicitly handle more than one match. Under the
+            // current architecture that should never happen.
+            if matches.len() < 1 {
+                return Err(format_err!("the virtual CWD (\"{}\") is not currently defined", spec));
+            }
+
+            return Ok(matches)
+        }
+
+        // CWD-parent reference? As usual this is more annoying than you might
+        // think because folders can have multiple parents.
+        if spec == ".." {
+            use std::collections::HashSet;
+
+            // note: if no CWD, we'll get Err, not Ok(vec![]).
+            let cwd = self.process_impl(".")?.pop().unwrap();
+            let accounts = cwd.accounts(self.app)?;
+            let mut parent_ids = HashSet::new();
+
+            for acct in &accounts {
+                let table = self.app.load_linkage_table(acct.id, true)?;
+                for pid in table.find_parent_paths(&cwd.id).iter_mut().map(|id_path| id_path.pop()) {
+                    if let Some(pid) = pid {
+                        parent_ids.insert(pid);
+                    }
+                }
+            }
+
+            return Ok(self.app.ids_to_docs(parent_ids));
+        }
+
+        // recent-listing reference?
         if spec.starts_with("%") {
             use schema::listitems::dsl::*;
             use database::{CLI_LAST_PRINT_ID, ListItem};
@@ -610,7 +686,7 @@ impl<'a> GetDocBuilder<'a> {
     }
 
     /// Convert a single specification string into a list of documents.
-    pub fn process<S: AsRef<str>>(self, spec: S) -> Result<Vec<Doc>> {
+    pub fn process<S: AsRef<str>>(mut self, spec: S) -> Result<Vec<Doc>> {
         let spec = spec.as_ref();
         let r = self.process_impl(spec)?;
 
@@ -626,7 +702,7 @@ impl<'a> GetDocBuilder<'a> {
     /// If not exactly one document matches, an error is raised. In the
     /// multiple-match case, a listing is printed that is intended to help the
     /// user narrow down their search.
-    pub fn process_one<S: AsRef<str>>(self, spec: S) -> Result<Doc> {
+    pub fn process_one<S: AsRef<str>>(mut self, spec: S) -> Result<Doc> {
         let spec = spec.as_ref();
         let mut r = self.process_impl(spec)?;
 

@@ -316,6 +316,8 @@ impl DrorgLsOptions {
         docs.reverse();
         app.print_doc_list(docs)?;
 
+        app.set_cwd(&doc)?;
+
         Ok(0)
     }
 }

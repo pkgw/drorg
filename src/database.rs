@@ -61,7 +61,7 @@ impl<'a> NewAccount<'a> {
 
 
 /// A document residing on a Google Drive.
-#[derive(Debug, Identifiable, PartialEq, Queryable)]
+#[derive(Clone, Debug, Identifiable, PartialEq, Queryable)]
 #[table_name = "docs"]
 pub struct Doc {
     /// The unique identifier of this document.
@@ -284,6 +284,11 @@ pub struct ListItem {
 /// In the `ListItems` table, the listing_id corresponding to the list of
 /// documents that was most recently printed out in an invocation of the CLI.
 pub const CLI_LAST_PRINT_ID: i32 = 0;
+
+/// In the `ListItems` table, the listing_id corresponding to the most
+/// recently probed folder. This list should contain only one item.
+pub const CLI_CWD_ID: i32 = 1;
+
 
 /// Data representing a new list-item row to insert into the database.
 #[derive(Debug, Insertable, PartialEq)]
