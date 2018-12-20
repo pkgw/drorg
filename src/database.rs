@@ -92,6 +92,9 @@ pub struct Doc {
 
     /// Whether this document is in the trash.
     pub trashed: bool,
+
+    /// The size of this file in bytes, if it has binary content in Google Drive.
+    pub size: Option<i32>,
 }
 
 impl Doc {
@@ -113,6 +116,16 @@ impl Doc {
     /// Return true if this document is a folder.
     pub fn is_folder(&self) -> bool {
         self.mime_type == "application/vnd.google-apps.folder"
+    }
+
+    /// Format the size of this document in a human-friendly way, if it is
+    /// available.
+    ///
+    /// Returns None if the size is unknown, which happens for files that do
+    /// not have binary content in Google Drive.
+    pub fn human_size(&self) -> Option<String> {
+        use humansize::{FileSize, file_size_opts};
+        self.size.map(|s| s.file_size(file_size_opts::BINARY).unwrap_or_else(|_e| "[negative]".to_owned()))
     }
 
     /// Discover which accounts this document is associated with.
@@ -152,6 +165,9 @@ pub struct NewDoc<'a> {
 
     /// The last time this document was modified.
     pub modified_time: NaiveDateTime,
+
+    /// The size of this file in bytes, if it has binary content in Google Drive.
+    pub size: Option<i32>,
 }
 
 impl<'a> NewDoc<'a> {
@@ -169,6 +185,10 @@ impl<'a> NewDoc<'a> {
             .ok_or_else(|| format_err!("no modifiedTime provided with file object"))
             .and_then(|text| Ok(DateTime::parse_from_rfc3339(&text)?))?
             .naive_utc();
+        let size = match file.size.as_ref() {
+            Some(text) => Some(text.parse()?), // I don't think there's a better way to unwrap?
+            None => None
+        };
 
         Ok(NewDoc {
             id,
@@ -177,6 +197,7 @@ impl<'a> NewDoc<'a> {
             starred,
             trashed,
             modified_time,
+            size,
         })
    }
 }

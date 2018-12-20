@@ -20,6 +20,7 @@ table! {
         modified_time -> Timestamp,
         starred -> Bool,
         trashed -> Bool,
+        size -> Nullable<Integer>,
     }
 }
 

@@ -88,7 +88,7 @@ impl Application {
             let root_id = {
                 let file = google_apis::get_file(&hub, "root", |call| {
                     call.param("fields", "id,mimeType,modifiedTime,name,parents,\
-                                          starred,trashed")
+                                          size,starred,trashed")
                 })?;
                 let new_doc = database::NewDoc::from_api_object(&file)?;
                 diesel::replace_into(schema::docs::table)
@@ -106,7 +106,7 @@ impl Application {
             for maybe_file in google_apis::list_files(&hub, |call| {
                 call.spaces("drive")
                     .param("fields", "files(id,mimeType,modifiedTime,name,parents,\
-                                      starred,trashed),nextPageToken")
+                                      size,starred,trashed),nextPageToken")
             }) {
                 let file = maybe_file?;
                 let new_doc = database::NewDoc::from_api_object(&file)?;
@@ -163,7 +163,7 @@ impl Application {
                     .include_removed(true)
                     .include_corpus_removals(true)
                     .param("fields", "changes(file(id,mimeType,modifiedTime,name,parents,\
-                                      starred,trashed),fileId,removed),newStartPageToken,\
+                                      size,starred,trashed),fileId,removed),newStartPageToken,\
                                       nextPageToken")
             );
 

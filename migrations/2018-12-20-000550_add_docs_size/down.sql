@@ -1,0 +1,1 @@
+-- SQLite cannot remove single columns from tables, so do nothing here.

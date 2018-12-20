@@ -12,6 +12,7 @@ extern crate chrono;
 #[macro_use] extern crate diesel;
 #[macro_use] extern crate failure;
 extern crate google_drive3;
+extern crate humansize;
 extern crate hyper;
 extern crate hyper_native_tls;
 extern crate petgraph;
@@ -97,6 +98,7 @@ impl DrorgInfoOptions {
 
             tcprintln!(app.ps, [hl: "Name:"], ("      "), [green: "{}", doc.name]);
             tcprintln!(app.ps, [hl: "MIME-type:"], (" {}", doc.mime_type));
+            tcprintln!(app.ps, [hl: "Size:"], ("      {}", doc.human_size().unwrap_or_else(|| "N/A".to_owned())));
             tcprintln!(app.ps, [hl: "Modified:"], ("  {}", doc.utc_mod_time().to_rfc3339()));
             tcprintln!(app.ps, [hl: "ID:"], ("        {}", doc.id));
             tcprintln!(app.ps, [hl: "Starred?:"], ("  {}", if doc.starred { "yes" } else { "no" }));
