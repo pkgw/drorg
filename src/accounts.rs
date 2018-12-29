@@ -13,7 +13,6 @@ use errors::{AdaptExternalResult, Result};
 use google_apis::{self, CallBuilderExt, Drive};
 use token_storage::SerdeMemoryStorage;
 
-
 /// Information about one logged-in Google Drive account.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct AccountData {
@@ -36,7 +35,6 @@ pub struct AccountData {
     pub last_sync: Option<DateTime<Utc>>,
 }
 
-
 /// A reference to a logged-in account.
 #[derive(Debug, Default)]
 pub struct Account {
@@ -55,7 +53,8 @@ impl Account {
     pub fn load<S: AsRef<str>>(email: S) -> Result<Account> {
         // Note that PathBuf.set_extension() will destroy, e.g., ".com" at the
         // end of an email address.
-        let mut path = app_dirs::get_app_dir(app_dirs::AppDataType::UserData, &::APP_INFO, "accounts")?;
+        let mut path =
+            app_dirs::get_app_dir(app_dirs::AppDataType::UserData, &::APP_INFO, "accounts")?;
         let mut email_ext = email.as_ref().to_owned();
         email_ext.push_str(".json");
         path.push(&email_ext);
@@ -98,18 +97,23 @@ impl Account {
     /// make the API call to get the email address associated with the account
     /// when setting it up, because otherwise it will fail when trying to
     /// write JSON to an as-yet-unknown path.
-    fn with_drive_hub_nosave<T, F>(&mut self, secret: &ApplicationSecret, mut callback: F) -> Result<T>
-        where for<'a> F: FnMut(&'a Drive<'a>) -> Result<T>
+    fn with_drive_hub_nosave<T, F>(
+        &mut self,
+        secret: &ApplicationSecret,
+        mut callback: F,
+    ) -> Result<T>
+    where
+        for<'a> F: FnMut(&'a Drive<'a>) -> Result<T>,
     {
-        use yup_oauth2::{Authenticator, DefaultAuthenticatorDelegate};
         use google_apis::get_http_client;
+        use yup_oauth2::{Authenticator, DefaultAuthenticatorDelegate};
 
         let auth = Authenticator::new(
             secret,
             DefaultAuthenticatorDelegate,
             get_http_client()?,
             &mut self.data.tokens,
-            None
+            None,
         );
 
         let hub = google_drive3::Drive::new(get_http_client()?, auth);
@@ -121,7 +125,8 @@ impl Account {
     /// The callback has the signature `FnMut(hub: &Drive) -> Result<T>`. In
     /// the definition here we get to use the elusive `where for` syntax!
     pub fn with_drive_hub<T, F>(&mut self, secret: &ApplicationSecret, callback: F) -> Result<T>
-        where for<'a> F: FnMut(&'a Drive<'a>) -> Result<T>
+    where
+        for<'a> F: FnMut(&'a Drive<'a>) -> Result<T>,
     {
         let result = self.with_drive_hub_nosave(secret, callback)?;
         self.save_to_json()?;
@@ -131,8 +136,12 @@ impl Account {
     /// Ask Google for the email address associated with this account.
     pub fn fetch_email_address(&mut self, secret: &ApplicationSecret) -> Result<String> {
         let about = self.with_drive_hub_nosave(secret, |hub| google_apis::get_about(&hub))?;
-        let user = about.user.ok_or(format_err!("server response did not include user information"))?;
-        let email = user.email_address.ok_or(format_err!("server response did not include email address"))?;
+        let user = about.user.ok_or(format_err!(
+            "server response did not include user information"
+        ))?;
+        let email = user
+            .email_address
+            .ok_or(format_err!("server response did not include email address"))?;
 
         // Kind of ugly: set the save path for our JSON file now that we know
         // what the associated email is. Then we can save the data. Note that
@@ -152,11 +161,14 @@ impl Account {
     /// Acquire a new token for checking for recent document changes in this account.
     pub fn acquire_change_page_token(&mut self, secret: &ApplicationSecret) -> Result<()> {
         let token = self.with_drive_hub(secret, |hub| {
-            let (_resp, info) = hub.changes().get_start_page_token()
+            let (_resp, info) = hub
+                .changes()
+                .get_start_page_token()
                 .default_scope()
                 .doit()
                 .adapt()?;
-            info.start_page_token.ok_or(format_err!("server response did not include token"))
+            info.start_page_token
+                .ok_or(format_err!("server response did not include token"))
         })?;
 
         self.data.change_page_token = Some(token);
@@ -164,7 +176,6 @@ impl Account {
         Ok(())
     }
 }
-
 
 /// Get information about all of the accounts.
 pub fn get_accounts() -> Result<impl Iterator<Item = Result<(String, Account)>>> {
@@ -183,7 +194,7 @@ pub fn get_accounts() -> Result<impl Iterator<Item = Result<(String, Account)>>>
                         } else {
                             return None;
                         }
-                    },
+                    }
 
                     None => return None,
                 };
@@ -197,7 +208,7 @@ pub fn get_accounts() -> Result<impl Iterator<Item = Result<(String, Account)>>>
                     Ok(acct) => Some(Ok((email, acct))),
                     Err(e) => Some(Err(e.into())),
                 }
-            },
+            }
         }
     }))
 }

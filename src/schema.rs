@@ -45,10 +45,4 @@ joinable!(account_associations -> docs (doc_id));
 joinable!(links -> accounts (account_id));
 joinable!(listitems -> docs (doc_id));
 
-allow_tables_to_appear_in_same_query!(
-    account_associations,
-    accounts,
-    docs,
-    links,
-    listitems,
-);
+allow_tables_to_appear_in_same_query!(account_associations, accounts, docs, links, listitems,);

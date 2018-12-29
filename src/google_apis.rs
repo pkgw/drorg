@@ -13,9 +13,8 @@ use std::cell::RefCell;
 use std::fs;
 use std::rc::Rc;
 use yup_oauth2::{
-    Authenticator as YupAuthenticator, ApplicationSecret,
-    ConsoleApplicationSecret, DefaultAuthenticatorDelegate,
-    FlowType, GetToken, NullStorage, TokenStorage,
+    ApplicationSecret, Authenticator as YupAuthenticator, ConsoleApplicationSecret,
+    DefaultAuthenticatorDelegate, FlowType, GetToken, NullStorage, TokenStorage,
 };
 
 use errors::{AdaptExternalResult, Result};
@@ -25,13 +24,10 @@ use token_storage::{ScopeList, SerdeMemoryStorage};
 pub type TokenStore<'a> = &'a mut SerdeMemoryStorage;
 
 /// The app-specific authenticator type.
-pub type Authenticator<'a> = YupAuthenticator<DefaultAuthenticatorDelegate,
-                                              TokenStore<'a>,
-                                              Client>;
+pub type Authenticator<'a> = YupAuthenticator<DefaultAuthenticatorDelegate, TokenStore<'a>, Client>;
 
 /// The app-specific Drive API "hub" type.
 pub type Drive<'a> = google_drive3::Drive<Client, Authenticator<'a>>;
-
 
 /// Get the "application secret" needed to authenticate against Google APIs.
 ///
@@ -40,33 +36,29 @@ pub type Drive<'a> = google_drive3::Drive<Client, Authenticator<'a>>;
 ///
 /// On Linux the desired filepath is `~/.config/drorg/client_id.json`.
 pub fn get_app_secret() -> Result<ApplicationSecret> {
-    let p = app_dirs::get_app_dir(app_dirs::AppDataType::UserConfig, &::APP_INFO, "client_id.json")?;
+    let p = app_dirs::get_app_dir(
+        app_dirs::AppDataType::UserConfig,
+        &::APP_INFO,
+        "client_id.json",
+    )?;
     let f = fs::File::open(p)?;
     let cfg: ConsoleApplicationSecret = serde_json::from_reader(f)?;
-    cfg.installed.ok_or_else(|| format_err!("no installed-application secret"))
+    cfg.installed
+        .ok_or_else(|| format_err!("no installed-application secret"))
 }
-
 
 /// Get an HTTP client with all the bells and whistles we need.
 pub fn get_http_client() -> Result<hyper::Client> {
     Ok(hyper::Client::with_connector(
-        hyper::net::HttpsConnector::new(
-            hyper_native_tls::NativeTlsClient::new()?
-        )
+        hyper::net::HttpsConnector::new(hyper_native_tls::NativeTlsClient::new()?),
     ))
 }
-
 
 /// The first of tese strings is `google_drive3::Scope::Full.as_ref(). It's
 /// convenient to have this scope as a static string constant. The other
 /// scopes are needed to figure out the email address associted with each
 /// account on login.
-pub const SCOPES: &[&str] = &[
-    "https://www.googleapis.com/auth/drive",
-    "profile",
-    "email",
-];
-
+pub const SCOPES: &[&str] = &["https://www.googleapis.com/auth/drive", "profile", "email"];
 
 /// Get a ScopeList representing the scopes that we need.
 ///
@@ -74,7 +66,6 @@ pub const SCOPES: &[&str] = &[
 pub fn get_scopes() -> ScopeList<'static> {
     ScopeList::new(SCOPES)
 }
-
 
 /// Helper trait for generic operations on API calls
 ///
@@ -100,14 +91,16 @@ pub trait CallBuilderExt: Sized {
 macro_rules! impl_call_builder_ext {
     ($type:ty) => {
         impl<'a, C, A> CallBuilderExt for $type
-            where C: ::std::borrow::BorrowMut<hyper::Client>, A: GetToken
+        where
+            C: ::std::borrow::BorrowMut<hyper::Client>,
+            A: GetToken,
         {
             fn set_scope<S: AsRef<str>>(self, scope: S) -> Self {
                 // I don't know why the compiler needs me to spell out the type here ...
                 self.add_scope::<Option<S>, S>(Some(scope))
             }
         }
-    }
+    };
 }
 
 impl_call_builder_ext!(google_drive3::AboutGetCall<'a, C, A>);
@@ -115,7 +108,6 @@ impl_call_builder_ext!(google_drive3::ChangeGetStartPageTokenCall<'a, C, A>);
 impl_call_builder_ext!(google_drive3::ChangeListCall<'a, C, A>);
 impl_call_builder_ext!(google_drive3::FileGetCall<'a, C, A>);
 impl_call_builder_ext!(google_drive3::FileListCall<'a, C, A>);
-
 
 /// Ask the user to authorize our app to use an account, interactively.
 ///
@@ -126,8 +118,12 @@ impl_call_builder_ext!(google_drive3::FileListCall<'a, C, A>);
 /// The `where` clause in the definition here is a mini-hack that allows the
 /// compiler to be sure that the `storage.set()` error type can be converted
 /// into a failure::Error.
-pub fn authorize_interactively<T: TokenStorage>(secret: &ApplicationSecret, storage: &mut T) -> Result<()>
-    where <T as TokenStorage>::Error: Sync + Send
+pub fn authorize_interactively<T: TokenStorage>(
+    secret: &ApplicationSecret,
+    storage: &mut T,
+) -> Result<()>
+where
+    <T as TokenStorage>::Error: Sync + Send,
 {
     let scopes = get_scopes();
 
@@ -136,26 +132,26 @@ pub fn authorize_interactively<T: TokenStorage>(secret: &ApplicationSecret, stor
         DefaultAuthenticatorDelegate,
         get_http_client()?,
         NullStorage::default(),
-        Some(FlowType::InstalledInteractive)
+        Some(FlowType::InstalledInteractive),
     );
 
     let token = auth.token(scopes.as_vec()).adapt()?;
     Ok(storage.set(scopes.hash, &scopes.scopes, Some(token))?)
 }
 
-
 /// Get "about" meta-information about the logged-in Drive account
 pub fn get_about<'a, 'b>(hub: &'b Drive<'a>) -> Result<google_drive3::About>
-    where 'b: 'a
+where
+    'b: 'a,
 {
-    let call = hub.about()
+    let call = hub
+        .about()
         .get()
         .param("fields", "exportFormats,importFormats,storageQuota,user")
         .default_scope();
     let (_resp, about) = call.doit().adapt()?;
     Ok(about)
 }
-
 
 /// An app-specific type for the FileListCall type from `google_drive3`.
 ///
@@ -168,8 +164,9 @@ pub type FileGetCall<'a, 'b> = google_drive3::FileGetCall<'a, Client, Authentica
 /// The id "root" corresponds to a special file that does not appear in the
 /// results of the `list_files` API call.
 pub fn get_file<'a, 'b, F>(hub: &'b Drive<'a>, id: &str, mut f: F) -> Result<google_drive3::File>
-    where 'b: 'a,
-          F: 'a + FnMut(FileGetCall<'a, 'b>) -> FileGetCall<'a, 'b>
+where
+    'b: 'a,
+    F: 'a + FnMut(FileGetCall<'a, 'b>) -> FileGetCall<'a, 'b>,
 {
     let call = hub.files().get(id);
     let call = f(call);
@@ -177,7 +174,6 @@ pub fn get_file<'a, 'b, F>(hub: &'b Drive<'a>, id: &str, mut f: F) -> Result<goo
     let (_resp, file) = call.doit().adapt()?;
     Ok(file)
 }
-
 
 /// An app-specific type for the FileListCall type from `google_drive3`.
 ///
@@ -197,13 +193,16 @@ pub type FileListCall<'a, 'b> = google_drive3::FileListCall<'a, Client, Authenti
 /// Note that this API does not return an entry for the special "root" file
 /// associated with each Google Drive account. Information that file can be
 /// obtained by passing the special ID "root" to `get_file()`.
-pub fn list_files<'a, 'b, F>(hub: &'b Drive<'a>, f: F) -> impl Iterator<Item = Result<google_drive3::File>> + 'a
-    where 'b: 'a,
-          F: 'a + FnMut(FileListCall<'a, 'b>) -> FileListCall<'a, 'b>
+pub fn list_files<'a, 'b, F>(
+    hub: &'b Drive<'a>,
+    f: F,
+) -> impl Iterator<Item = Result<google_drive3::File>> + 'a
+where
+    'b: 'a,
+    F: 'a + FnMut(FileListCall<'a, 'b>) -> FileListCall<'a, 'b>,
 {
     FileListing::new(hub, f)
 }
-
 
 /// Helper class for paging `files.list` results.
 ///
@@ -212,10 +211,11 @@ pub fn list_files<'a, 'b, F>(hub: &'b Drive<'a>, f: F) -> impl Iterator<Item = R
 /// from complaining about it being unused, even though that lifetime is
 /// referenced by the type parameter F.
 struct FileListing<'a, 'b, C, A, F>
-    where 'b: 'a,
-          F: FnMut(google_drive3::FileListCall<'a, C, A>) -> google_drive3::FileListCall<'a, C, A>,
-          C: 'b + std::borrow::BorrowMut<hyper::Client>,
-          A: 'b + yup_oauth2::GetToken
+where
+    'b: 'a,
+    F: FnMut(google_drive3::FileListCall<'a, C, A>) -> google_drive3::FileListCall<'a, C, A>,
+    C: 'b + std::borrow::BorrowMut<hyper::Client>,
+    A: 'b + yup_oauth2::GetToken,
 {
     hub: &'b google_drive3::Drive<C, A>,
     customizer: F,
@@ -227,10 +227,11 @@ struct FileListing<'a, 'b, C, A, F>
 }
 
 impl<'a, 'b, C, A, F> FileListing<'a, 'b, C, A, F>
-    where 'b: 'a,
-          F: FnMut(google_drive3::FileListCall<'a, C, A>) -> google_drive3::FileListCall<'a, C, A>,
-          C: 'b + std::borrow::BorrowMut<hyper::Client>,
-          A: 'b + yup_oauth2::GetToken
+where
+    'b: 'a,
+    F: FnMut(google_drive3::FileListCall<'a, C, A>) -> google_drive3::FileListCall<'a, C, A>,
+    C: 'b + std::borrow::BorrowMut<hyper::Client>,
+    A: 'b + yup_oauth2::GetToken,
 {
     fn new(hub: &'b google_drive3::Drive<C, A>, f: F) -> FileListing<'a, 'b, C, A, F> {
         FileListing {
@@ -246,10 +247,11 @@ impl<'a, 'b, C, A, F> FileListing<'a, 'b, C, A, F>
 }
 
 impl<'a, 'b, C, A, F> Iterator for FileListing<'a, 'b, C, A, F>
-    where 'b: 'a,
-          F: FnMut(google_drive3::FileListCall<'a, C, A>) -> google_drive3::FileListCall<'a, C, A>,
-          C: 'b + std::borrow::BorrowMut<hyper::Client>,
-          A: 'b + yup_oauth2::GetToken
+where
+    'b: 'a,
+    F: FnMut(google_drive3::FileListCall<'a, C, A>) -> google_drive3::FileListCall<'a, C, A>,
+    C: 'b + std::borrow::BorrowMut<hyper::Client>,
+    A: 'b + yup_oauth2::GetToken,
 {
     type Item = Result<google_drive3::File>;
 
@@ -338,7 +340,9 @@ impl<'a, 'b, C, A, F> Iterator for FileListing<'a, 'b, C, A, F>
                 return if self.final_page {
                     None
                 } else {
-                    Some(Err(format_err!("API call failed: empty page in midst of query")))
+                    Some(Err(format_err!(
+                        "API call failed: empty page in midst of query"
+                    )))
                 };
             }
         };
@@ -349,13 +353,13 @@ impl<'a, 'b, C, A, F> Iterator for FileListing<'a, 'b, C, A, F>
 }
 
 impl<'a, 'b, C, A, F> std::iter::FusedIterator for FileListing<'a, 'b, C, A, F>
-    where 'b: 'a,
-          F: FnMut(google_drive3::FileListCall<'a, C, A>) -> google_drive3::FileListCall<'a, C, A>,
-          C: 'b + std::borrow::BorrowMut<hyper::Client>,
-          A: 'b + yup_oauth2::GetToken
-{}
-
-
+where
+    'b: 'a,
+    F: FnMut(google_drive3::FileListCall<'a, C, A>) -> google_drive3::FileListCall<'a, C, A>,
+    C: 'b + std::borrow::BorrowMut<hyper::Client>,
+    A: 'b + yup_oauth2::GetToken,
+{
+}
 
 /// An app-specific type for the ChangeListCall type from `google_drive3`.
 ///
@@ -373,14 +377,16 @@ pub type ChangeListCall<'a, 'b> = google_drive3::ChangeListCall<'a, Client, Auth
 /// query that will be sent to Google's servers. The results for each query
 /// may need to be paged, so the function may be called multiple times.
 pub fn list_changes<'a, 'b, F>(
-    hub: &'b Drive<'a>, page_token: &str, f: F
+    hub: &'b Drive<'a>,
+    page_token: &str,
+    f: F,
 ) -> ChangeListing<'a, 'b, Client, Authenticator<'a>, F>
-    where 'b: 'a,
-          F: FnMut(ChangeListCall<'a, 'b>) -> ChangeListCall<'a, 'b> + 'a
+where
+    'b: 'a,
+    F: FnMut(ChangeListCall<'a, 'b>) -> ChangeListCall<'a, 'b> + 'a,
 {
     ChangeListing::new(hub, page_token, f)
 }
-
 
 /// Helper type for `list_changes`.
 ///
@@ -388,10 +394,11 @@ pub fn list_changes<'a, 'b, F>(
 /// that the API told us. Since for-loop iteration consumes the thing being
 /// iterated over, we need this type to make the retrieval possible.
 pub struct ChangeListing<'a, 'b, C, A, F>
-    where 'b: 'a,
-          F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A>,
-          C: 'b + std::borrow::BorrowMut<hyper::Client>,
-          A: 'b + yup_oauth2::GetToken
+where
+    'b: 'a,
+    F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A>,
+    C: 'b + std::borrow::BorrowMut<hyper::Client>,
+    A: 'b + yup_oauth2::GetToken,
 {
     iter: Option<ChangeListingIterator<'a, 'b, C, A, F>>,
 
@@ -400,18 +407,24 @@ pub struct ChangeListing<'a, 'b, C, A, F>
 }
 
 impl<'a, 'b, C, A, F> ChangeListing<'a, 'b, C, A, F>
-    where 'b: 'a,
-          F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A> + 'a,
-          C: 'b + std::borrow::BorrowMut<hyper::Client>,
-          A: 'b + yup_oauth2::GetToken
+where
+    'b: 'a,
+    F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A>
+        + 'a,
+    C: 'b + std::borrow::BorrowMut<hyper::Client>,
+    A: 'b + yup_oauth2::GetToken,
 {
-    fn new(hub: &'b google_drive3::Drive<C, A>, page_token: &str, f: F) -> ChangeListing<'a, 'b, C, A, F> {
+    fn new(
+        hub: &'b google_drive3::Drive<C, A>,
+        page_token: &str,
+        f: F,
+    ) -> ChangeListing<'a, 'b, C, A, F> {
         let tok = Rc::new(RefCell::new(page_token.to_owned()));
         let iter = Some(ChangeListingIterator::new(hub, tok.clone(), f));
 
         ChangeListing {
             iter,
-            next_page_token: tok
+            next_page_token: tok,
         }
     }
 
@@ -424,13 +437,13 @@ impl<'a, 'b, C, A, F> ChangeListing<'a, 'b, C, A, F>
     }
 }
 
-
 /// Iteration helper for paging `changes.list` results.
 struct ChangeListingIterator<'a, 'b, C, A, F>
-    where 'b: 'a,
-          F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A>,
-          C: 'b + std::borrow::BorrowMut<hyper::Client>,
-          A: 'b + yup_oauth2::GetToken
+where
+    'b: 'a,
+    F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A>,
+    C: 'b + std::borrow::BorrowMut<hyper::Client>,
+    A: 'b + yup_oauth2::GetToken,
 {
     hub: &'b google_drive3::Drive<C, A>,
     next_page_token: Rc<RefCell<String>>,
@@ -442,12 +455,17 @@ struct ChangeListingIterator<'a, 'b, C, A, F>
 }
 
 impl<'a, 'b, C, A, F> ChangeListingIterator<'a, 'b, C, A, F>
-    where 'b: 'a,
-          F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A>,
-          C: 'b + std::borrow::BorrowMut<hyper::Client>,
-          A: 'b + yup_oauth2::GetToken
+where
+    'b: 'a,
+    F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A>,
+    C: 'b + std::borrow::BorrowMut<hyper::Client>,
+    A: 'b + yup_oauth2::GetToken,
 {
-    fn new(hub: &'b google_drive3::Drive<C, A>, tok: Rc<RefCell<String>>, f: F) -> ChangeListingIterator<'a, 'b, C, A, F> {
+    fn new(
+        hub: &'b google_drive3::Drive<C, A>,
+        tok: Rc<RefCell<String>>,
+        f: F,
+    ) -> ChangeListingIterator<'a, 'b, C, A, F> {
         ChangeListingIterator {
             hub,
             next_page_token: tok,
@@ -461,10 +479,11 @@ impl<'a, 'b, C, A, F> ChangeListingIterator<'a, 'b, C, A, F>
 }
 
 impl<'a, 'b, C, A, F> Iterator for ChangeListingIterator<'a, 'b, C, A, F>
-    where 'b: 'a,
-          F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A>,
-          C: 'b + std::borrow::BorrowMut<hyper::Client>,
-          A: 'b + yup_oauth2::GetToken
+where
+    'b: 'a,
+    F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A>,
+    C: 'b + std::borrow::BorrowMut<hyper::Client>,
+    A: 'b + yup_oauth2::GetToken,
 {
     type Item = Result<google_drive3::Change>;
 
@@ -519,8 +538,10 @@ impl<'a, 'b, C, A, F> Iterator for ChangeListingIterator<'a, 'b, C, A, F>
                 self.final_page = true;
             } else {
                 self.finished = true;
-                return Some(Err(format_err!("API call failed: Neither next_page_token nor \
-                                             new_start_page_token provided")));
+                return Some(Err(format_err!(
+                    "API call failed: Neither next_page_token nor \
+                     new_start_page_token provided"
+                )));
             }
         }
 
@@ -550,7 +571,9 @@ impl<'a, 'b, C, A, F> Iterator for ChangeListingIterator<'a, 'b, C, A, F>
                 return if self.final_page {
                     None
                 } else {
-                    Some(Err(format_err!("API call failed: empty page in midst of query")))
+                    Some(Err(format_err!(
+                        "API call failed: empty page in midst of query"
+                    )))
                 };
             }
         };
@@ -561,8 +584,10 @@ impl<'a, 'b, C, A, F> Iterator for ChangeListingIterator<'a, 'b, C, A, F>
 }
 
 impl<'a, 'b, C, A, F> std::iter::FusedIterator for ChangeListingIterator<'a, 'b, C, A, F>
-    where 'b: 'a,
-          F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A>,
-          C: 'b + std::borrow::BorrowMut<hyper::Client>,
-          A: 'b + yup_oauth2::GetToken
-{}
+where
+    'b: 'a,
+    F: FnMut(google_drive3::ChangeListCall<'a, C, A>) -> google_drive3::ChangeListCall<'a, C, A>,
+    C: 'b + std::borrow::BorrowMut<hyper::Client>,
+    A: 'b + yup_oauth2::GetToken,
+{
+}
