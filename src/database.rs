@@ -15,11 +15,16 @@ use schema::*;
 
 /// Connect to the Sqlite database.
 pub fn get_db_connection() -> Result<SqliteConnection> {
-    let p = app_dirs::get_app_dir(app_dirs::AppDataType::UserData, &super::APP_INFO, "db.sqlite")?;
-    let as_str = p.to_str().ok_or_else(|| format_err!("cannot express user data path as Unicode"))?;
+    let p = app_dirs::get_app_dir(
+        app_dirs::AppDataType::UserData,
+        &super::APP_INFO,
+        "db.sqlite",
+    )?;
+    let as_str = p
+        .to_str()
+        .ok_or_else(|| format_err!("cannot express user data path as Unicode"))?;
     Ok(SqliteConnection::establish(&as_str)?)
 }
-
 
 /// Superficial information about a logged-in account.
 ///
@@ -39,7 +44,6 @@ pub struct Account {
     pub email: String,
 }
 
-
 /// Data representing a new account row to insert into the database
 ///
 /// See the documentation for `Account` for explanations of the fields. This
@@ -58,7 +62,6 @@ impl<'a> NewAccount<'a> {
         NewAccount { email }
     }
 }
-
 
 /// A document residing on a Google Drive.
 #[derive(Clone, Debug, Identifiable, PartialEq, Queryable)]
@@ -92,6 +95,9 @@ pub struct Doc {
 
     /// Whether this document is in the trash.
     pub trashed: bool,
+
+    /// The size of this file in bytes, if it has binary content in Google Drive.
+    pub size: Option<i32>,
 }
 
 impl Doc {
@@ -115,17 +121,33 @@ impl Doc {
         self.mime_type == "application/vnd.google-apps.folder"
     }
 
+    /// Format the size of this document in a human-friendly way, if it is
+    /// available.
+    ///
+    /// Returns None if the size is unknown, which happens for files that do
+    /// not have binary content in Google Drive.
+    pub fn human_size(&self) -> Option<String> {
+        use humansize::{file_size_opts, FileSize};
+        self.size.map(|s| {
+            s.file_size(file_size_opts::BINARY)
+                .unwrap_or_else(|_e| "[negative]".to_owned())
+        })
+    }
+
     /// Discover which accounts this document is associated with.
     pub fn accounts(&self, app: &mut Application) -> Result<Vec<database::Account>> {
         use schema::account_associations::dsl::*;
-        let associations = account_associations.inner_join(accounts::table)
+        let associations = account_associations
+            .inner_join(accounts::table)
             .filter(doc_id.eq(&self.id))
             .load::<(database::AccountAssociation, database::Account)>(&app.conn)?;
-        let accounts: Vec<_> = associations.iter().map(|(_assoc, account)| account.clone()).collect();
+        let accounts: Vec<_> = associations
+            .iter()
+            .map(|(_assoc, account)| account.clone())
+            .collect();
         Ok(accounts)
     }
 }
-
 
 /// Data representing a new document row to insert into the database.
 ///
@@ -152,23 +174,32 @@ pub struct NewDoc<'a> {
 
     /// The last time this document was modified.
     pub modified_time: NaiveDateTime,
+
+    /// The size of this file in bytes, if it has binary content in Google Drive.
+    pub size: Option<i32>,
 }
 
 impl<'a> NewDoc<'a> {
     /// Fill in a database record from a file returned by the drive3 API.
     pub fn from_api_object(file: &'a google_drive3::File) -> Result<NewDoc<'a>> {
-        let id = &file.id.as_ref().ok_or_else(
-            || format_err!("no ID provided with file object")
-        )?;
+        let id = &file
+            .id
+            .as_ref()
+            .ok_or_else(|| format_err!("no ID provided with file object"))?;
         let name = &file.name.as_ref().map_or("???", |s| s);
         let mime_type = &file.mime_type.as_ref().map_or("", |s| s);
         let starred = file.starred.unwrap_or(false);
         let trashed = file.trashed.unwrap_or(false);
-        let modified_time = file.modified_time
+        let modified_time = file
+            .modified_time
             .as_ref()
             .ok_or_else(|| format_err!("no modifiedTime provided with file object"))
             .and_then(|text| Ok(DateTime::parse_from_rfc3339(&text)?))?
             .naive_utc();
+        let size = match file.size.as_ref() {
+            Some(text) => Some(text.parse()?), // I don't think there's a better way to unwrap?
+            None => None,
+        };
 
         Ok(NewDoc {
             id,
@@ -177,10 +208,10 @@ impl<'a> NewDoc<'a> {
             starred,
             trashed,
             modified_time,
+            size,
         })
-   }
+    }
 }
-
 
 /// A parent-child relationship link between two documents.
 #[derive(Debug, PartialEq, Queryable)]
@@ -194,7 +225,6 @@ pub struct Link {
     /// The document ID of the child.
     pub child_id: String,
 }
-
 
 /// Data representing a new link row to insert into the database.
 ///
@@ -217,10 +247,13 @@ pub struct NewLink<'a> {
 impl<'a> NewLink<'a> {
     /// Create a new linkage record.
     pub fn new(account_id: i32, parent_id: &'a str, child_id: &'a str) -> NewLink<'a> {
-        NewLink { account_id, parent_id, child_id }
+        NewLink {
+            account_id,
+            parent_id,
+            child_id,
+        }
     }
 }
-
 
 /// A record tying a document to a logged-in account.
 ///
@@ -237,7 +270,6 @@ pub struct AccountAssociation {
     /// one, account.
     pub account_id: i32,
 }
-
 
 /// Data representing a new account association row to insert into the
 /// database.
@@ -263,7 +295,6 @@ impl<'a> NewAccountAssociation<'a> {
     }
 }
 
-
 /// An document that has been entered in some list.
 #[derive(Debug, PartialEq, Queryable)]
 pub struct ListItem {
@@ -280,7 +311,6 @@ pub struct ListItem {
     pub doc_id: String,
 }
 
-
 /// In the `ListItems` table, the listing_id corresponding to the list of
 /// documents that was most recently printed out in an invocation of the CLI.
 pub const CLI_LAST_PRINT_ID: i32 = 0;
@@ -288,7 +318,6 @@ pub const CLI_LAST_PRINT_ID: i32 = 0;
 /// In the `ListItems` table, the listing_id corresponding to the most
 /// recently probed folder. This list should contain only one item.
 pub const CLI_CWD_ID: i32 = 1;
-
 
 /// Data representing a new list-item row to insert into the database.
 #[derive(Debug, Insertable, PartialEq)]
@@ -307,6 +336,10 @@ pub struct NewListItem<'a> {
 impl<'a> NewListItem<'a> {
     /// Create a new list item record.
     pub fn new(listing_id: i32, position: i32, doc_id: &'a str) -> NewListItem<'a> {
-        NewListItem { listing_id, position, doc_id }
+        NewListItem {
+            listing_id,
+            position,
+            doc_id,
+        }
     }
 }

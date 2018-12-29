@@ -128,7 +128,6 @@ use termcolor::{ColorChoice, StandardStream, WriteColor};
 #[doc(no_inline)]
 pub use termcolor::{Color, ColorSpec};
 
-
 /// Which destination to print text to: standard output or standard error.
 ///
 /// This enum may seem a bit superfluous, but it's possible that we might want
@@ -143,7 +142,6 @@ pub enum PrintDestination {
     /// Print to standard output.
     Stdout,
 }
-
 
 /// A structure capturing access to all output streams.
 ///
@@ -160,10 +158,7 @@ impl Default for PrintStreams {
         let stdout = StandardStream::stdout(ColorChoice::Auto);
         let stderr = StandardStream::stderr(ColorChoice::Auto);
 
-        PrintStreams {
-            stdout,
-            stderr,
-        }
+        PrintStreams { stdout, stderr }
     }
 }
 
@@ -172,9 +167,12 @@ impl PrintStreams {
     ///
     /// This is a low-level function, expected to be used by higher-level APIs.
     #[inline(always)]
-    pub fn print_color(&mut self, stream: PrintDestination, color: &ColorSpec, args: fmt::Arguments)
-        -> io::Result<()>
-    {
+    pub fn print_color(
+        &mut self,
+        stream: PrintDestination,
+        color: &ColorSpec,
+        args: fmt::Arguments,
+    ) -> io::Result<()> {
         let stream = match stream {
             PrintDestination::Stderr => &mut self.stderr,
             PrintDestination::Stdout => &mut self.stdout,
@@ -186,14 +184,15 @@ impl PrintStreams {
         r
     }
 
-
     /// Print to one (or more) of the output streams without changing the colorization.
     ///
     /// This is a low-level function, expected to be used by higher-level APIs.
     #[inline(always)]
-    pub fn print_nocolor(&mut self, stream: PrintDestination, args: fmt::Arguments)
-        -> io::Result<()>
-    {
+    pub fn print_nocolor(
+        &mut self,
+        stream: PrintDestination,
+        args: fmt::Arguments,
+    ) -> io::Result<()> {
         let stream = match stream {
             PrintDestination::Stderr => &mut self.stderr,
             PrintDestination::Stdout => &mut self.stdout,
@@ -208,7 +207,6 @@ impl PrintStreams {
         self.stderr.flush()
     }
 }
-
 
 /// A basic selection of colors for printing to the terminal.
 ///
@@ -267,7 +265,6 @@ impl Default for BasicColors {
         }
     }
 }
-
 
 /// State for colorized printing.
 ///
@@ -342,7 +339,6 @@ impl<C> ColorPrintState<C> {
     }
 }
 
-
 /// Low-level colorized printing.
 ///
 /// This macro is the generic engine underlying `tcprint!()` and friends.
@@ -374,7 +370,6 @@ macro_rules! tcanyprint {
         )*
     }};
 }
-
 
 /// Print to standard output with colorization, without a trailing newline.
 ///
@@ -457,7 +452,6 @@ macro_rules! tcprint {
     }};
 }
 
-
 /// Print to standard error with colorization, without a trailing newline.
 ///
 /// For usage information, see the documentation for `tcprint!()`.
@@ -469,7 +463,6 @@ macro_rules! etcprint {
     }};
 }
 
-
 /// Print to standard output with colorization and a trailing newline.
 ///
 /// For usage information, see the documentation for `tcprint!()`.
@@ -480,7 +473,6 @@ macro_rules! tcprintln {
     }};
 }
 
-
 /// Print to standard error with colorization and a trailing newline.
 ///
 /// For usage information, see the documentation for `tcprint!()`.
@@ -490,7 +482,6 @@ macro_rules! etcprintln {
         etcprint!($cps, $($clause),*, ("\n"))
     }};
 }
-
 
 /// A helper enumeration of different “report” (log level) types.
 ///
@@ -509,7 +500,6 @@ pub enum ReportType {
     /// An error.
     Error,
 }
-
 
 /// Specify colors to be used by the `tcreport!()` macro.
 ///

@@ -19,7 +19,6 @@ use errors::Result;
 use google_apis;
 use schema;
 
-
 /// An enum for specifying how we should synchronize with the servers
 arg_enum! {
     #[derive(Clone, Debug, Eq, PartialEq)]
@@ -30,7 +29,6 @@ arg_enum! {
     }
 }
 
-
 /// Global options for the application.
 #[derive(Debug, StructOpt)]
 pub struct ApplicationOptions {
@@ -39,11 +37,10 @@ pub struct ApplicationOptions {
         help = "Whether to synchronize with the Google Drive servers",
         parse(try_from_str),
         default_value = "auto",
-        raw(possible_values = r#"&["auto", "no", "yes"]"#),
+        raw(possible_values = r#"&["auto", "no", "yes"]"#)
     )]
     pub sync: SyncOption,
 }
-
 
 /// The runtime state of the application.
 pub struct Application {
@@ -60,7 +57,6 @@ pub struct Application {
     pub ps: ColorPrintState<Colors>,
 }
 
-
 impl Application {
     /// Initialize the application.
     pub fn initialize(options: ApplicationOptions) -> Result<Application> {
@@ -72,7 +68,7 @@ impl Application {
             options,
             secret,
             conn,
-            ps
+            ps,
         })
     }
 
@@ -87,8 +83,11 @@ impl Application {
             // document.
             let root_id = {
                 let file = google_apis::get_file(&hub, "root", |call| {
-                    call.param("fields", "id,mimeType,modifiedTime,name,parents,\
-                                          starred,trashed")
+                    call.param(
+                        "fields",
+                        "id,mimeType,modifiedTime,name,parents,\
+                         size,starred,trashed",
+                    )
                 })?;
                 let new_doc = database::NewDoc::from_api_object(&file)?;
                 diesel::replace_into(schema::docs::table)
@@ -104,9 +103,11 @@ impl Application {
             };
 
             for maybe_file in google_apis::list_files(&hub, |call| {
-                call.spaces("drive")
-                    .param("fields", "files(id,mimeType,modifiedTime,name,parents,\
-                                      starred,trashed),nextPageToken")
+                call.spaces("drive").param(
+                    "fields",
+                    "files(id,mimeType,modifiedTime,name,parents,\
+                     size,starred,trashed),nextPageToken",
+                )
             }) {
                 let file = maybe_file?;
                 let new_doc = database::NewDoc::from_api_object(&file)?;
@@ -142,7 +143,6 @@ impl Application {
         Ok(())
     }
 
-
     /// Synchronize the database with recent changes in this account.
     ///
     /// Note that this doesn't set `data.last_sync`, since its caller has a
@@ -150,22 +150,26 @@ impl Application {
     fn sync_account(&mut self, email: &str, account: &mut Account) -> Result<()> {
         let the_account_id = account.data.db_id; // borrowck fun
 
-        let token = account.data.change_page_token.take().ok_or(
-            format_err!("no change-paging token for {}", email)
-        )?;
+        let token = account
+            .data
+            .change_page_token
+            .take()
+            .ok_or(format_err!("no change-paging token for {}", email))?;
 
         let token = account.with_drive_hub(&self.secret, |hub| {
-            let mut lister = google_apis::list_changes(
-                &hub, &token,
-                |call| call.spaces("drive")
+            let mut lister = google_apis::list_changes(&hub, &token, |call| {
+                call.spaces("drive")
                     .supports_team_drives(true)
                     .include_team_drive_items(true)
                     .include_removed(true)
                     .include_corpus_removals(true)
-                    .param("fields", "changes(file(id,mimeType,modifiedTime,name,parents,\
-                                      starred,trashed),fileId,removed),newStartPageToken,\
-                                      nextPageToken")
-            );
+                    .param(
+                        "fields",
+                        "changes(file(id,mimeType,modifiedTime,name,parents,\
+                         size,starred,trashed),fileId,removed),newStartPageToken,\
+                         nextPageToken",
+                    )
+            });
 
             for maybe_change in lister.iter() {
                 use schema::docs::dsl::*;
@@ -173,9 +177,9 @@ impl Application {
                 let change = maybe_change?;
 
                 let removed = change.removed.unwrap_or(false);
-                let file_id = (&change.file_id).as_ref().ok_or_else(
-                    || format_err!("no file_id provided with change reported by the server")
-                )?;
+                let file_id = (&change.file_id).as_ref().ok_or_else(|| {
+                    format_err!("no file_id provided with change reported by the server")
+                })?;
 
                 if removed {
                     // TODO: just save a flag, or something? NOTE: Just
@@ -186,12 +190,14 @@ impl Application {
 
                     {
                         use schema::links::dsl::*;
-                        diesel::delete(links.filter(account_id.eq(the_account_id)
-                                                    .and(parent_id.eq(file_id))))
-                            .execute(&self.conn)?;
-                        diesel::delete(links.filter(account_id.eq(the_account_id)
-                                                    .and(child_id.eq(file_id))))
-                            .execute(&self.conn)?;
+                        diesel::delete(
+                            links.filter(account_id.eq(the_account_id).and(parent_id.eq(file_id))),
+                        )
+                        .execute(&self.conn)?;
+                        diesel::delete(
+                            links.filter(account_id.eq(the_account_id).and(child_id.eq(file_id))),
+                        )
+                        .execute(&self.conn)?;
                     }
 
                     {
@@ -200,18 +206,20 @@ impl Application {
                             .execute(&self.conn)?;
                     }
 
-                    diesel::delete(docs.filter(id.eq(file_id)))
-                        .execute(&self.conn)?;
+                    diesel::delete(docs.filter(id.eq(file_id))).execute(&self.conn)?;
                 } else {
-                    let file = &change.file.as_ref().ok_or_else(
-                        || format_err!("server reported file change but did not provide its information")
-                    )?;
+                    let file = &change.file.as_ref().ok_or_else(|| {
+                        format_err!(
+                            "server reported file change but did not provide its information"
+                        )
+                    })?;
                     let new_doc = database::NewDoc::from_api_object(file)?;
                     diesel::replace_into(schema::docs::table)
                         .values(&new_doc)
                         .execute(&self.conn)?;
 
-                    let new_assn = database::NewAccountAssociation::new(&new_doc.id, the_account_id);
+                    let new_assn =
+                        database::NewAccountAssociation::new(&new_doc.id, the_account_id);
                     diesel::replace_into(schema::account_associations::table)
                         .values(&new_assn)
                         .execute(&self.conn)?;
@@ -220,9 +228,10 @@ impl Application {
 
                     {
                         use schema::links::dsl::*;
-                        diesel::delete(links.filter(account_id.eq(the_account_id)
-                                                    .and(child_id.eq(file_id))))
-                            .execute(&self.conn)?;
+                        diesel::delete(
+                            links.filter(account_id.eq(the_account_id).and(child_id.eq(file_id))),
+                        )
+                        .execute(&self.conn)?;
                     }
 
                     if let Some(parents) = file.parents.as_ref() {
@@ -243,7 +252,6 @@ impl Application {
         account.save_to_json()?;
         Ok(())
     }
-
 
     /// Maybe synchronize the database with the cloud, depending on the
     /// `--sync` option.
@@ -269,7 +277,7 @@ impl Application {
                     } else {
                         true
                     }
-                },
+                }
             };
 
             if should_sync {
@@ -281,18 +289,20 @@ impl Application {
         Ok(())
     }
 
-
     /// Convert an iterator of document IDs into Doc structures
     ///
     /// ## Panics
     ///
     /// If any of the IDs are not found in the database!
     pub fn ids_to_docs<I: IntoIterator<Item = V>, V: AsRef<str>>(&mut self, ids: I) -> Vec<Doc> {
-        ids.into_iter().map(|docid| {
-            use schema::docs::dsl::*;
-            docs.filter(id.eq(&docid.as_ref()))
-                .first::<database::Doc>(&self.conn).unwrap()
-        }).collect()
+        ids.into_iter()
+            .map(|docid| {
+                use schema::docs::dsl::*;
+                docs.filter(id.eq(&docid.as_ref()))
+                    .first::<database::Doc>(&self.conn)
+                    .unwrap()
+            })
+            .collect()
     }
 
     /// Set the virtual working directory that helps provide continuity from
@@ -300,14 +310,16 @@ impl Application {
     pub fn set_cwd(&mut self, doc: &Doc) -> Result<()> {
         if !doc.is_folder() {
             // Maybe this should just be a panic? But we have to return Result anyway
-            return Err(format_err!("cannot set virtual CWD to non-folder \"{}\"", doc.name));
+            return Err(format_err!(
+                "cannot set virtual CWD to non-folder \"{}\"",
+                doc.name
+            ));
         }
 
+        use database::{NewListItem, CLI_CWD_ID};
         use schema::listitems::dsl::*;
-        use database::{CLI_CWD_ID, NewListItem};
 
-        diesel::delete(listitems.filter(listing_id.eq(CLI_CWD_ID)))
-            .execute(&self.conn)?;
+        diesel::delete(listitems.filter(listing_id.eq(CLI_CWD_ID))).execute(&self.conn)?;
 
         let item = NewListItem::new(CLI_CWD_ID, 0, &doc.id);
         diesel::insert_into(listitems)
@@ -331,15 +343,17 @@ impl Application {
         // Get it all into the database first.
 
         {
+            use database::{NewListItem, CLI_LAST_PRINT_ID};
             use schema::listitems::dsl::*;
-            use database::{CLI_LAST_PRINT_ID, NewListItem};
 
             diesel::delete(listitems.filter(listing_id.eq(CLI_LAST_PRINT_ID)))
                 .execute(&self.conn)?;
 
-            let rows: Vec<_> = docs.iter().enumerate().map(
-                |(i, doc)| NewListItem::new(CLI_LAST_PRINT_ID, i as i32, &doc.id)
-            ).collect();
+            let rows: Vec<_> = docs
+                .iter()
+                .enumerate()
+                .map(|(i, doc)| NewListItem::new(CLI_LAST_PRINT_ID, i as i32, &doc.id))
+                .collect();
 
             diesel::insert_into(listitems)
                 .values(&rows)
@@ -363,11 +377,10 @@ impl Application {
 
         for doc in &docs {
             let ago = now.signed_duration_since(doc.utc_mod_time());
-            let ago = ago.to_std().map(
-                |stddur| timeago::Formatter::new().convert(stddur)
-            ).unwrap_or_else(
-                |_err| "[future?]".to_owned()
-            );
+            let ago = ago
+                .to_std()
+                .map(|stddur| timeago::Formatter::new().convert(stddur))
+                .unwrap_or_else(|_err| "[future?]".to_owned());
 
             tcprintln!(self.ps,
                        [percent_tag: "%{1:<0$}", n_width, i],
@@ -393,7 +406,6 @@ impl Application {
     }
 }
 
-
 /// Data about inter-document linkages.
 ///
 /// We have a database table that can store the inter-document linkage
@@ -413,7 +425,7 @@ pub struct LinkageTable {
     pub graph: petgraph::Graph<String, (), Directed, u32>,
 
     /// A map from document IDs to node indices in the graph.
-    pub nodes: HashMap<String, NodeIndex<u32>>
+    pub nodes: HashMap<String, NodeIndex<u32>>,
 }
 
 impl Application {
@@ -430,16 +442,17 @@ impl Application {
         let mut graph = petgraph::Graph::new();
         let mut nodes = HashMap::new();
 
-        let q = links.filter(account_id.eq(acct_id))
+        let q = links
+            .filter(account_id.eq(acct_id))
             .load::<database::Link>(&self.conn)?;
 
         for link in q {
-            let pix = *nodes.entry(link.parent_id.clone()).or_insert_with(
-                || graph.add_node(link.parent_id.clone())
-            );
-            let cix = *nodes.entry(link.child_id.clone()).or_insert_with(
-                || graph.add_node(link.child_id.clone())
-            );
+            let pix = *nodes
+                .entry(link.parent_id.clone())
+                .or_insert_with(|| graph.add_node(link.parent_id.clone()));
+            let cix = *nodes
+                .entry(link.child_id.clone())
+                .or_insert_with(|| graph.add_node(link.child_id.clone()));
 
             // The `update_edge()` function prevents duplicate edges from
             // being formed, but because the database has a primary key
@@ -454,10 +467,14 @@ impl Application {
             }
         }
 
-        Ok(LinkageTable { account_id: acct_id, transposed, graph, nodes })
+        Ok(LinkageTable {
+            account_id: acct_id,
+            transposed,
+            graph,
+            nodes,
+        })
     }
 }
-
 
 impl LinkageTable {
     /// Given a document ID, find the set of folders that contain it.
@@ -491,7 +508,7 @@ impl LinkageTable {
 
         let start_ix = match self.nodes.get(start_id) {
             Some(ix) => *ix,
-            None => return Vec::new()
+            None => return Vec::new(),
         };
 
         let mut queue = Vec::new();
@@ -559,7 +576,6 @@ impl LinkageTable {
     }
 }
 
-
 /// A struct for specifying how we might parse command-line arguments
 /// specifying zero or more documents.
 pub struct GetDocBuilder<'a> {
@@ -600,9 +616,7 @@ impl<'a> GetDocBuilder<'a> {
         use schema::docs::dsl::*;
 
         // Docid exact match?
-        let maybe_doc = docs.filter(id.eq(spec))
-            .first(&self.app.conn)
-            .optional()?;
+        let maybe_doc = docs.filter(id.eq(spec)).first(&self.app.conn).optional()?;
 
         if let Some(doc) = maybe_doc {
             return Ok(vec![doc]);
@@ -610,25 +624,26 @@ impl<'a> GetDocBuilder<'a> {
 
         // CWD reference?
         if spec == "." {
+            use database::{Doc, ListItem, CLI_CWD_ID};
             use schema::docs;
             use schema::listitems::dsl::*;
-            use database::{CLI_CWD_ID, Doc, ListItem};
 
-            let mut matches = listitems.inner_join(docs::table)
+            let mut matches = listitems
+                .inner_join(docs::table)
                 .filter(listing_id.eq(CLI_CWD_ID))
                 .load::<(ListItem, Doc)>(&self.app.conn)?;
-            let matches: Vec<_> = matches
-                .drain(0..)
-                .map(|(_row, doc)| doc)
-                .collect();
+            let matches: Vec<_> = matches.drain(0..).map(|(_row, doc)| doc).collect();
 
             // Note: we don't explicitly handle more than one match. Under the
             // current architecture that should never happen.
             if matches.len() < 1 {
-                return Err(format_err!("the virtual CWD (\"{}\") is not currently defined", spec));
+                return Err(format_err!(
+                    "the virtual CWD (\"{}\") is not currently defined",
+                    spec
+                ));
             }
 
-            return Ok(matches)
+            return Ok(matches);
         }
 
         // CWD-parent reference? As usual this is more annoying than you might
@@ -643,7 +658,11 @@ impl<'a> GetDocBuilder<'a> {
 
             for acct in &accounts {
                 let table = self.app.load_linkage_table(acct.id, true)?;
-                for pid in table.find_parent_paths(&cwd.id).iter_mut().map(|id_path| id_path.pop()) {
+                for pid in table
+                    .find_parent_paths(&cwd.id)
+                    .iter_mut()
+                    .map(|id_path| id_path.pop())
+                {
                     if let Some(pid) = pid {
                         parent_ids.insert(pid);
                     }
@@ -655,32 +674,35 @@ impl<'a> GetDocBuilder<'a> {
 
         // recent-listing reference?
         if spec.starts_with("%") {
+            use database::{ListItem, CLI_LAST_PRINT_ID};
             use schema::listitems::dsl::*;
-            use database::{CLI_LAST_PRINT_ID, ListItem};
 
             let number_text = &spec[1..];
             let index = number_text.parse::<i32>()? - 1; // 1-based to 0-based
-            let maybe_row = listitems.filter(listing_id.eq(CLI_LAST_PRINT_ID)
-                                             .and(position.eq(index)))
+            let maybe_row = listitems
+                .filter(listing_id.eq(CLI_LAST_PRINT_ID).and(position.eq(index)))
                 .first::<ListItem>(&self.app.conn)
                 .optional()?;
 
             let matched_id = match maybe_row {
                 Some(row) => row.doc_id,
                 None => {
-                    return Err(format_err!("\"{}\" is not a valid recent-document reference", spec));
+                    return Err(format_err!(
+                        "\"{}\" is not a valid recent-document reference",
+                        spec
+                    ));
                 }
             };
 
-            let doc = docs.filter(id.eq(matched_id))
-                .first(&self.app.conn)?;
+            let doc = docs.filter(id.eq(matched_id)).first(&self.app.conn)?;
             return Ok(vec![doc]);
         }
 
         // Partial doc name match?
         // TODO: ESCAPING
         let pattern = format!("%{}%", spec);
-        let results = docs.filter(name.like(&pattern))
+        let results = docs
+            .filter(name.like(&pattern))
             .load::<Doc>(&self.app.conn)?;
         Ok(results)
     }
@@ -691,7 +713,10 @@ impl<'a> GetDocBuilder<'a> {
         let r = self.process_impl(spec)?;
 
         if !self.zero_ok && r.len() == 0 {
-            return Err(format_err!("no documents matched the specification \"{}\"", spec));
+            return Err(format_err!(
+                "no documents matched the specification \"{}\"",
+                spec
+            ));
         }
 
         Ok(r)
@@ -707,7 +732,10 @@ impl<'a> GetDocBuilder<'a> {
         let mut r = self.process_impl(spec)?;
 
         if r.len() == 0 {
-            return Err(format_err!("no documents matched the specification \"{}\"", spec));
+            return Err(format_err!(
+                "no documents matched the specification \"{}\"",
+                spec
+            ));
         }
 
         if r.len() == 1 {
@@ -737,8 +765,10 @@ impl<'a> GetDocBuilder<'a> {
         }
 
         tcprintln!(self.app.ps, (""));
-        return Err(format_err!("specification should have matched exactly one document; \
-                                please be more specific"));
+        return Err(format_err!(
+            "specification should have matched exactly one document; \
+             please be more specific"
+        ));
     }
 
     /// Return a vector of all documents.

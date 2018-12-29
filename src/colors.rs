@@ -3,8 +3,7 @@
 
 //! The color palette for the command line interface.
 
-use tcprint::{Color, ColorSpec, ReportingColors, ReportType};
-
+use tcprint::{Color, ColorSpec, ReportType, ReportingColors};
 
 /// The CLI color palette.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -31,7 +30,6 @@ pub struct Colors {
     /// The color for a folder; defaults to bold blue.
     pub folder: ColorSpec,
 }
-
 
 impl Default for Colors {
     fn default() -> Self {

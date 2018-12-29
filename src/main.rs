@@ -8,18 +8,24 @@
 
 extern crate app_dirs;
 extern crate chrono;
-#[macro_use] extern crate clap; // for arg_enum!
-#[macro_use] extern crate diesel;
-#[macro_use] extern crate failure;
+#[macro_use]
+extern crate clap; // for arg_enum!
+#[macro_use]
+extern crate diesel;
+#[macro_use]
+extern crate failure;
 extern crate google_drive3;
+extern crate humansize;
 extern crate hyper;
 extern crate hyper_native_tls;
 extern crate petgraph;
 extern crate serde;
-#[macro_use] extern crate serde_derive;
+#[macro_use]
+extern crate serde_derive;
 extern crate serde_json;
 extern crate structopt;
-#[macro_use] extern crate tcprint;
+#[macro_use]
+extern crate tcprint;
 extern crate tempfile;
 extern crate timeago;
 extern crate url;
@@ -45,11 +51,12 @@ use app::Application;
 use colors::Colors;
 use errors::Result;
 
-
 /// Information used to find out app-specific config files, e.g. the
 /// application secret.
-const APP_INFO: app_dirs::AppInfo = app_dirs::AppInfo { name: "drorg", author: "drorg" };
-
+const APP_INFO: app_dirs::AppInfo = app_dirs::AppInfo {
+    name: "drorg",
+    author: "drorg",
+};
 
 /// Open a URL in a browser.
 ///
@@ -69,7 +76,6 @@ fn open_url<S: AsRef<OsStr>>(url: S) -> Result<()> {
         Err(format_err!("browser command exited with an error code"))
     }
 }
-
 
 /// Show detailed information about one or more documents.
 #[derive(Debug, StructOpt)]
@@ -97,6 +103,7 @@ impl DrorgInfoOptions {
 
             tcprintln!(app.ps, [hl: "Name:"], ("      "), [green: "{}", doc.name]);
             tcprintln!(app.ps, [hl: "MIME-type:"], (" {}", doc.mime_type));
+            tcprintln!(app.ps, [hl: "Size:"], ("      {}", doc.human_size().unwrap_or_else(|| "N/A".to_owned())));
             tcprintln!(app.ps, [hl: "Modified:"], ("  {}", doc.utc_mod_time().to_rfc3339()));
             tcprintln!(app.ps, [hl: "ID:"], ("        {}", doc.id));
             tcprintln!(app.ps, [hl: "Starred?:"], ("  {}", if doc.starred { "yes" } else { "no" }));
@@ -119,12 +126,17 @@ impl DrorgInfoOptions {
 
                 for p in link_table.find_parent_paths(&doc.id).iter().map(|id_path| {
                     // This is not efficient, and it's panicky, but meh.
-                    let names: Vec<_> = id_path.iter().map(|docid| {
-                        use schema::docs::dsl::*;
-                        let elem = docs.filter(id.eq(&docid))
-                            .first::<database::Doc>(&app.conn).unwrap();
-                        elem.name.clone()
-                    }).collect();
+                    let names: Vec<_> = id_path
+                        .iter()
+                        .map(|docid| {
+                            use schema::docs::dsl::*;
+                            let elem = docs
+                                .filter(id.eq(&docid))
+                                .first::<database::Doc>(&app.conn)
+                                .unwrap();
+                            elem.name.clone()
+                        })
+                        .collect();
 
                     names.join(" > ")
                 }) {
@@ -150,16 +162,16 @@ impl DrorgInfoOptions {
     }
 }
 
-
 /// List documents.
 #[derive(Debug, StructOpt)]
 pub struct DrorgListOptions {
     #[structopt(help = "A document specifier (name, ID, ...)", required_unless = "all")]
     spec: Option<String>,
 
-    #[structopt(long = "all",
-                help = "List all documents in the database",
-                conflicts_with = "spec"
+    #[structopt(
+        long = "all",
+        help = "List all documents in the database",
+        conflicts_with = "spec"
     )]
     all: bool,
 }
@@ -178,7 +190,6 @@ impl DrorgListOptions {
         Ok(0)
     }
 }
-
 
 /// The command-line action to add a login to the credentials DB.
 ///
@@ -221,7 +232,8 @@ impl DrorgLoginOptions {
             use diesel::prelude::*;
             use schema::accounts::dsl::*;
 
-            let maybe_row = accounts.filter(email.eq(&email_addr))
+            let maybe_row = accounts
+                .filter(email.eq(&email_addr))
                 .first::<database::Account>(&app.conn)
                 .optional()?;
 
@@ -233,7 +245,8 @@ impl DrorgLoginOptions {
                     .values(&new_account)
                     .execute(&app.conn)?;
 
-                let row = accounts.filter(email.eq(&email_addr))
+                let row = accounts
+                    .filter(email.eq(&email_addr))
                     .first::<database::Account>(&app.conn)?;
                 row.id
             };
@@ -257,7 +270,6 @@ impl DrorgLoginOptions {
         Ok(0)
     }
 }
-
 
 /// List the files in a folder.
 ///
@@ -322,7 +334,6 @@ impl DrorgLsOptions {
     }
 }
 
-
 /// Open a document.
 #[derive(Debug, StructOpt)]
 pub struct DrorgOpenOptions {
@@ -340,11 +351,14 @@ impl DrorgOpenOptions {
     }
 }
 
-
 /// List recently-used documents.
 #[derive(Debug, StructOpt)]
 pub struct DrorgRecentOptions {
-    #[structopt(short="n", help="Limit output to this many documents", default_value="10")]
+    #[structopt(
+        short = "n",
+        help = "Limit output to this many documents",
+        default_value = "10"
+    )]
     limit: i64,
 }
 
@@ -354,7 +368,8 @@ impl DrorgRecentOptions {
 
         app.maybe_sync_all_accounts()?;
 
-        let listing = docs.order(modified_time.desc())
+        let listing = docs
+            .order(modified_time.desc())
             .limit(self.limit)
             .load::<database::Doc>(&app.conn)?;
 
@@ -362,7 +377,6 @@ impl DrorgRecentOptions {
         Ok(0)
     }
 }
-
 
 /// Synchronize with the cloud.
 #[derive(Debug, StructOpt)]
@@ -397,7 +411,6 @@ impl DrorgSyncOptions {
     }
 }
 
-
 /// The main StructOpt type for dispatching subcommands.
 #[derive(Debug, StructOpt)]
 pub enum DrorgSubcommand {
@@ -430,7 +443,6 @@ pub enum DrorgSubcommand {
     Sync(DrorgSyncOptions),
 }
 
-
 /// The main StructOpt argument dispatcher.
 #[derive(Debug, StructOpt)]
 #[structopt(name = "drorg", about = "Organize documents on Google Drive.")]
@@ -441,7 +453,6 @@ pub struct DrorgCli {
     #[structopt(flatten)]
     app_opts: app::ApplicationOptions,
 }
-
 
 impl DrorgCli {
     fn cli(self) -> StdResult<i32, (failure::Error, Option<ColorPrintState<Colors>>)> {
@@ -464,7 +475,6 @@ impl DrorgCli {
     }
 }
 
-
 fn main() {
     let program = DrorgCli::from_args();
 
@@ -485,6 +495,6 @@ fn main() {
             }
 
             1
-        },
+        }
     });
 }

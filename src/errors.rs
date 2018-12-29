@@ -7,12 +7,10 @@ use google_drive3::Error as DriveError;
 use std::error::Error as StdError;
 use std::result;
 
-
 /// A result whose error type is failure::Error.
 ///
 /// The failure crate provides this type, but under a name I don't like.
 pub use failure::Fallible as Result;
-
 
 /// Helper trait for error conversions.
 ///
