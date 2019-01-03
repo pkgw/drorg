@@ -710,7 +710,7 @@ impl<'a> GetDocBuilder<'a> {
     /// Convert a single specification string into a list of documents.
     pub fn process<S: AsRef<str>>(mut self, spec: S) -> Result<Vec<Doc>> {
         let spec = spec.as_ref();
-        let r = self.process_impl(spec)?;
+        let mut r = self.process_impl(spec)?;
 
         if !self.zero_ok && r.len() == 0 {
             return Err(format_err!(
@@ -718,6 +718,11 @@ impl<'a> GetDocBuilder<'a> {
                 spec
             ));
         }
+
+        // Show most recent modification first. This code could be extended to provide more
+        // possibilities if so desired.
+        r.sort_by_key(|d| d.utc_mod_time());
+        r.reverse();
 
         Ok(r)
     }
