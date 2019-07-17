@@ -19,8 +19,8 @@ use errors::Result;
 use google_apis;
 use schema;
 
-/// An enum for specifying how we should synchronize with the servers
 arg_enum! {
+    /// An enum for specifying how we should synchronize with the servers
     #[derive(Clone, Debug, Eq, PartialEq)]
     pub enum SyncOption {
         No,
@@ -362,7 +362,6 @@ impl Application {
 
         // Now print it out.
 
-        use chrono::Utc;
         let now = Utc::now();
 
         let n = docs.len();
@@ -624,7 +623,7 @@ impl<'a> GetDocBuilder<'a> {
 
         // CWD reference?
         if spec == "." {
-            use database::{Doc, ListItem, CLI_CWD_ID};
+            use database::{ListItem, CLI_CWD_ID};
             use schema::docs;
             use schema::listitems::dsl::*;
 

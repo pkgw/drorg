@@ -27,7 +27,7 @@ pub type TokenStore<'a> = &'a mut SerdeMemoryStorage;
 pub type Authenticator<'a> = YupAuthenticator<DefaultAuthenticatorDelegate, TokenStore<'a>, Client>;
 
 /// The app-specific Drive API "hub" type.
-pub type Drive<'a> = google_drive3::Drive<Client, Authenticator<'a>>;
+pub type Drive<'a> = google_drive3::DriveHub<Client, Authenticator<'a>>;
 
 /// Get the "application secret" needed to authenticate against Google APIs.
 ///
@@ -217,7 +217,7 @@ where
     C: 'b + std::borrow::BorrowMut<hyper::Client>,
     A: 'b + yup_oauth2::GetToken,
 {
-    hub: &'b google_drive3::Drive<C, A>,
+    hub: &'b google_drive3::DriveHub<C, A>,
     customizer: F,
     cur_page: Option<std::vec::IntoIter<google_drive3::File>>,
     next_page_token: Option<String>,
@@ -233,7 +233,7 @@ where
     C: 'b + std::borrow::BorrowMut<hyper::Client>,
     A: 'b + yup_oauth2::GetToken,
 {
-    fn new(hub: &'b google_drive3::Drive<C, A>, f: F) -> FileListing<'a, 'b, C, A, F> {
+    fn new(hub: &'b google_drive3::DriveHub<C, A>, f: F) -> FileListing<'a, 'b, C, A, F> {
         FileListing {
             hub,
             customizer: f,
@@ -415,7 +415,7 @@ where
     A: 'b + yup_oauth2::GetToken,
 {
     fn new(
-        hub: &'b google_drive3::Drive<C, A>,
+        hub: &'b google_drive3::DriveHub<C, A>,
         page_token: &str,
         f: F,
     ) -> ChangeListing<'a, 'b, C, A, F> {
@@ -445,7 +445,7 @@ where
     C: 'b + std::borrow::BorrowMut<hyper::Client>,
     A: 'b + yup_oauth2::GetToken,
 {
-    hub: &'b google_drive3::Drive<C, A>,
+    hub: &'b google_drive3::DriveHub<C, A>,
     next_page_token: Rc<RefCell<String>>,
     customizer: F,
     cur_page: Option<std::vec::IntoIter<google_drive3::Change>>,
@@ -462,7 +462,7 @@ where
     A: 'b + yup_oauth2::GetToken,
 {
     fn new(
-        hub: &'b google_drive3::Drive<C, A>,
+        hub: &'b google_drive3::DriveHub<C, A>,
         tok: Rc<RefCell<String>>,
         f: F,
     ) -> ChangeListingIterator<'a, 'b, C, A, F> {
