@@ -1,4 +1,4 @@
-// Copyright 2018 Peter Williams <peter@newton.cx>
+// Copyright 2018-2019 Peter Williams <peter@newton.cx>
 // Licensed under the MIT License.
 
 //! The main CLI driver logic.
@@ -411,6 +411,23 @@ impl DrorgSyncOptions {
     }
 }
 
+/// Print the URL of a document.
+#[derive(Debug, StructOpt)]
+pub struct DrorgUrlOptions {
+    #[structopt(help = "A document specifier (name, ID, ...)")]
+    spec: String,
+}
+
+impl DrorgUrlOptions {
+    fn cli(self, app: &mut Application) -> Result<i32> {
+        app.maybe_sync_all_accounts()?;
+
+        let doc = app.get_docs().process_one(self.spec)?;
+        println!("{}", doc.open_url());
+        Ok(0)
+    }
+}
+
 /// The main StructOpt type for dispatching subcommands.
 #[derive(Debug, StructOpt)]
 pub enum DrorgSubcommand {
@@ -441,6 +458,10 @@ pub enum DrorgSubcommand {
     #[structopt(name = "sync")]
     /// Synchronize with the cloud
     Sync(DrorgSyncOptions),
+
+    #[structopt(name = "url")]
+    /// Print the URL to open a document
+    Url(DrorgUrlOptions),
 }
 
 /// The main StructOpt argument dispatcher.
@@ -469,6 +490,7 @@ impl DrorgCli {
             DrorgSubcommand::Open(opts) => opts.cli(&mut app),
             DrorgSubcommand::Recent(opts) => opts.cli(&mut app),
             DrorgSubcommand::Sync(opts) => opts.cli(&mut app),
+            DrorgSubcommand::Url(opts) => opts.cli(&mut app),
         };
 
         result.map_err(|e| (e, Some(app.ps)))

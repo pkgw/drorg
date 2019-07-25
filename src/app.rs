@@ -19,8 +19,8 @@ use errors::Result;
 use google_apis;
 use schema;
 
-/// An enum for specifying how we should synchronize with the servers
 arg_enum! {
+    /// An enum for specifying how we should synchronize with the servers
     #[derive(Clone, Debug, Eq, PartialEq)]
     pub enum SyncOption {
         No,
@@ -176,10 +176,16 @@ impl Application {
 
                 let change = maybe_change?;
 
+                let file_id = match (&change.file_id).as_ref() {
+                    Some(fid) => fid,
+
+                    // I've observed change entries that are filled with Nones
+                    // for every item we request. I don't know what that
+                    // means, but it seems to work OK if we just ignore them.
+                    None => continue,
+                };
+
                 let removed = change.removed.unwrap_or(false);
-                let file_id = (&change.file_id).as_ref().ok_or_else(|| {
-                    format_err!("no file_id provided with change reported by the server")
-                })?;
 
                 if removed {
                     // TODO: just save a flag, or something? NOTE: Just
@@ -362,7 +368,6 @@ impl Application {
 
         // Now print it out.
 
-        use chrono::Utc;
         let now = Utc::now();
 
         let n = docs.len();
@@ -624,7 +629,7 @@ impl<'a> GetDocBuilder<'a> {
 
         // CWD reference?
         if spec == "." {
-            use database::{Doc, ListItem, CLI_CWD_ID};
+            use database::{ListItem, CLI_CWD_ID};
             use schema::docs;
             use schema::listitems::dsl::*;
 

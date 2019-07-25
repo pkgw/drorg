@@ -116,7 +116,7 @@ impl Account {
             None,
         );
 
-        let hub = google_drive3::Drive::new(get_http_client()?, auth);
+        let hub = google_drive3::DriveHub::new(get_http_client()?, auth);
         callback(&hub)
     }
 
