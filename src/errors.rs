@@ -40,7 +40,7 @@ impl<T> AdaptExternalResult for result::Result<T, DriveError> {
     }
 }
 
-impl<T> AdaptExternalResult for result::Result<T, Box<StdError>> {
+impl<T> AdaptExternalResult for result::Result<T, Box<dyn StdError>> {
     type OkType = T;
 
     fn adapt(self) -> Result<T> {
