@@ -269,6 +269,7 @@ impl Application {
     pub fn maybe_sync_all_accounts(&mut self) -> Result<()> {
         // Could make this configurable?
         let resync_delay = Duration::minutes(5);
+        let mut printed_sync_notice = false;
 
         for maybe_info in accounts::get_accounts()? {
             let now: DateTime<Utc> = Utc::now();
@@ -287,6 +288,10 @@ impl Application {
             };
 
             if should_sync {
+                if !printed_sync_notice {
+                    tcreport!(self.ps, info: "synchronizing accounts ...");
+                    printed_sync_notice = true;
+                }
                 account.data.last_sync = Some(now);
                 self.sync_account(&email, &mut account)?;
             }
