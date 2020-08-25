@@ -31,3 +31,6 @@ tempfile = "^3.0"
 timeago = "^0.1"
 url = "^1.7"
 yup-oauth2 = "^1.0"
+
+[package.metadata.internal_dep_versions]
+tcprint = "1ee4146fa9002e1558e8819132c7da6c8afb68b2"
