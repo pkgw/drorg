@@ -41,6 +41,12 @@ jobs:
       cargo test --all
     displayName: Build and test
 
+  - bash: |
+      git add .
+      ./cranko release-workflow commit
+      git show
+    displayName: Generate release commit
+
   - ${{ if eq(variables['Build.SourceBranchName'], 'rc') }}:
     - template: azure-deployment.yml
 
