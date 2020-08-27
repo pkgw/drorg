@@ -2,5 +2,3 @@
 
 - No code changes; transitioning to Cranko for release automation
 - Dependency versions updated
-
-
