@@ -2,15 +2,15 @@
 
 steps:
 - bash: |
-    ./cranko github install-credential-helper
-    ./cranko release-workflow tag
+    cranko github install-credential-helper
+    cranko release-workflow tag
     git push --tags origin release:release
   displayName: Tag and push release branch
   env:
     GITHUB_TOKEN: $(GITHUB_TOKEN)
 
 - bash: |
-    ./cranko github create-release cranko
+    cranko github create-release cranko
   displayName: Create GitHub release
   env:
     GITHUB_TOKEN: $(GITHUB_TOKEN)
