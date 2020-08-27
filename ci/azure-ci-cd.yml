@@ -27,10 +27,10 @@ jobs:
     displayName: Log Rust and Cargo versions
 
   - bash: |
-      env
-      echo "$PATH"
-      cd ~/.linuxbrew/bin/
+      d="$(mktemp --tmpdir -d cranko.XXXXXX)"
+      cd "$d"
       curl --proto '=https' --tlsv1.2 -sSf https://pkgw.github.io/cranko/fetch-latest.sh | sh
+      echo "##vso[task.prependpath]$d"
     displayName: Install latest Cranko
 
   - bash: |
