@@ -29,11 +29,12 @@ jobs:
   - bash: |
       env
       echo "$PATH"
+      cd ~/.linuxbrew/bin/
       curl --proto '=https' --tlsv1.2 -sSf https://pkgw.github.io/cranko/fetch-latest.sh | sh
-    displayName: Fetch latest Cranko
+    displayName: Install latest Cranko
 
   - bash: |
-      ./cranko release-workflow apply-versions
+      cranko release-workflow apply-versions
     displayName: Apply versions
 
   - bash: |
@@ -43,7 +44,7 @@ jobs:
 
   - bash: |
       git add .
-      ./cranko release-workflow commit
+      cranko release-workflow commit
       git show
     displayName: Generate release commit
 
