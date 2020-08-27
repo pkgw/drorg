@@ -1,0 +1,48 @@
+# Main pipeline spec for CI/CD on Azure Pipelines. Demonstrates Cranko.
+
+trigger:
+  branches:
+    include:
+    - master
+    - rc
+
+jobs:
+- job: Linux
+  pool:
+    vmImage: ubuntu-16.04
+  steps:
+  - bash: |
+      set -e
+      rustup set profile minimal
+      rustup component remove --toolchain=$TOOLCHAIN rust-docs || echo "already removed"
+      rustup update --no-self-update $TOOLCHAIN
+      rustup default $TOOLCHAIN
+    displayName: Select Rust toolchain
+
+  - bash: |
+      set -ex
+      rustup -V
+      rustc -Vv
+      cargo -V
+    displayName: Log Rust and Cargo versions
+
+  - bash: |
+      env
+      echo "$PATH"
+      curl --proto '=https' --tlsv1.2 -sSf https://pkgw.github.io/cranko/fetch-latest.sh | sh
+    displayName: Fetch latest Cranko
+
+  - bash: |
+      ./cranko release-workflow apply-versions
+    displayName: Apply versions
+
+  - bash: |
+      cargo build --all
+      cargo test --all
+    displayName: Build and test
+
+  - ${{ if eq(variables['Build.SourceBranchName'], 'rc') }}:
+    - template: azure-deployment.yml
+
+  variables:
+    TOOLCHAIN: stable
