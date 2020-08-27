@@ -1,6 +1,9 @@
+# Copyright 2018-2020 Peter Williams <peter@newton.cx>
+# Licensed under the MIT License.
+
 [package]
 name = "drorg"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Peter Williams <peter@newton.cx>"]
 description = "Organize Google Drive documents efficiently."
 homepage = "https://github.com/pkgw/drorg/"
