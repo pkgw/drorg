@@ -10,7 +10,7 @@ steps:
     GITHUB_TOKEN: $(GITHUB_TOKEN)
 
 - bash: |
-    cranko github create-release cranko
-  displayName: Create GitHub release
+    cranko github create-releases
+  displayName: Create GitHub releases
   env:
     GITHUB_TOKEN: $(GITHUB_TOKEN)
