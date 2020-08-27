@@ -1,4 +1,4 @@
-# Copyright 2018 Peter Williams <peter@newton.cx>
+# Copyright 2018-2020 Peter Williams <peter@newton.cx>
 # Licensed under the MIT License.
 
 [package]
@@ -13,4 +13,4 @@ readme = "README.md"
 license = "MIT"
 
 [dependencies]
-termcolor = "1.0"
+termcolor = "^1.0"
