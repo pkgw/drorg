@@ -1,5 +1,10 @@
 # rc: micro bump
 
+- Bump to 2018 edition.
+- See if we can publish this to Crates.io automatically.
+
+# tcprint 0.1.3 (2020-09-01)
+
 - No code changes; test release to validate Cargo publishing infrastructure.
 
 # tcprint 0.1.2 (2020-08-27)
