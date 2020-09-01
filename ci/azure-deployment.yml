@@ -1,8 +1,5 @@
 # Deployment pipeline, run when all CI tests pass on `rc`
 
-variables:
-  - group: Deployment Credentials
-
 steps:
 - bash: |
     git add .

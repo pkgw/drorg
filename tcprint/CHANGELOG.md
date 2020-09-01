@@ -1,6 +1,6 @@
 # rc: micro bump
 
-- No code changes; iterating on Cargo publishing.
+- No code changes; iterating on Cargo publishing
 
 # tcprint 0.1.4 (2020-09-01)
 

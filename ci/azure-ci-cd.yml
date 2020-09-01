@@ -10,6 +10,12 @@ jobs:
 - job: Linux
   pool:
     vmImage: ubuntu-16.04
+
+  # Included unconditionally in this simple workflow; secrets will
+  # be witheheld in PR builds.
+  variables:
+  - group: Deployment Credentials
+
   steps:
   - bash: |
       set -ex
