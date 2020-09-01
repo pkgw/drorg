@@ -1,4 +1,4 @@
-// Copyright 2018 Peter Williams <peter@newton.cx>
+// Copyright 2018-2020 Peter Williams <peter@newton.cx>
 // Licensed under the MIT License.
 
 //! Structured, colorized printing to the terminal using [termcolor].
@@ -117,8 +117,6 @@
 //! [termcolor]: https://github.com/BurntSushi/termcolor
 
 #![deny(missing_docs)]
-
-extern crate termcolor;
 
 use std::default::Default;
 use std::fmt;

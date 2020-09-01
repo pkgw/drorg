@@ -3,7 +3,7 @@
 
 [package]
 name = "tcprint"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["Peter Williams <peter@newton.cx>"]
 description = "Structured, colorized printing to the terminal using `termcolor`"
 homepage = "https://github.com/pkgw/drorg"
@@ -11,6 +11,7 @@ documentation = "https://docs.rs/crate/tcprint"
 repository = "https://github.com/pkgw/drorg"
 readme = "README.md"
 license = "MIT"
+edition = "2018"
 
 [dependencies]
 termcolor = "^1.0"
