@@ -12,19 +12,16 @@ jobs:
     vmImage: ubuntu-16.04
   steps:
   - bash: |
-      set -e
+      set -ex
       rustup set profile minimal
       rustup component remove --toolchain=$TOOLCHAIN rust-docs || echo "already removed"
       rustup update --no-self-update $TOOLCHAIN
       rustup default $TOOLCHAIN
-    displayName: Select Rust toolchain
-
-  - bash: |
-      set -ex
+      # Log versions for posterity:
       rustup -V
       rustc -Vv
       cargo -V
-    displayName: Log Rust and Cargo versions
+    displayName: Select Rust toolchain
 
   - bash: |
       d="$(mktemp --tmpdir -d cranko.XXXXXX)"
@@ -43,10 +40,9 @@ jobs:
     displayName: Build and test
 
   - bash: |
-      git add .
-      cranko release-workflow commit
-      git show
-    displayName: Generate release commit
+      git status
+      git diff
+    displayName: Show cranko release edits
 
   - ${{ if eq(variables['Build.SourceBranchName'], 'rc') }}:
     - template: azure-deployment.yml

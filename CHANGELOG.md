@@ -1,8 +1,7 @@
-# drorg 0.1.2 (2020-08-27)
+# See GitHub for changelog
 
-- No code changes; retrying to shake out bugs in release pipeline.
+Changelogs for this project are curated from the Git history of its main branch.
+You can find them by looking at the `release` branch or the project's [GitHub
+release history][releases].
 
-# drorg 0.1.1 (2020-08-27)
-
-- No code changes; transitioning to Cranko for release automation
-- Dependency versions updated
+[releases]: https://github.com/pkgw/drorg/releases
