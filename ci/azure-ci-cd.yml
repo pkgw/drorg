@@ -10,6 +10,14 @@ jobs:
 - job: Linux
   pool:
     vmImage: ubuntu-16.04
+
+  # Deployment creds included unconditionally in this simple workflow; secrets
+  # will be witheheld in PR builds.
+  variables:
+  - group: Deployment Credentials
+  - name: TOOLCHAIN
+    value: stable
+
   steps:
   - bash: |
       set -ex
@@ -46,6 +54,3 @@ jobs:
 
   - ${{ if eq(variables['Build.SourceBranchName'], 'rc') }}:
     - template: azure-deployment.yml
-
-  variables:
-    TOOLCHAIN: stable

@@ -3,7 +3,7 @@
 
 [package]
 name = "tcprint"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["Peter Williams <peter@newton.cx>"]
 description = "Structured, colorized printing to the terminal using `termcolor`"
 homepage = "https://github.com/pkgw/drorg"

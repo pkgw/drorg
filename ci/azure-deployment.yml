@@ -7,6 +7,15 @@ steps:
     git show
   displayName: Generate release commit
 
+# TEMP ordering while I debug this
+- bash: |
+    set -ex
+    env |grep CARGO_REGISTRY |sed -e 's/[a-z]/x/'
+    cranko cargo foreach-released publish
+  displayName: Publish Cargo crates
+  env:
+    CARGO_REGISTRY_TOKEN: $(CARGO_REGISTRY_TOKEN)
+
 - bash: |
     cranko github install-credential-helper
     cranko release-workflow tag
@@ -14,12 +23,6 @@ steps:
   displayName: Tag and push release branch
   env:
     GITHUB_TOKEN: $(GITHUB_TOKEN)
-
-- bash: |
-    cranko cargo foreach-released publish
-  displayName: Publish Cargo crates
-  env:
-    CARGO_REGISTRY_TOKEN: $(CARGO_REGISTRY_TOKEN)
 
 - bash: |
     cranko github create-releases

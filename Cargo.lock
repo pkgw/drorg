@@ -193,7 +193,7 @@ dependencies = [
  "serde_derive 1.0.115 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde_json 1.0.57 (registry+https://github.com/rust-lang/crates.io-index)",
  "structopt 0.2.18 (registry+https://github.com/rust-lang/crates.io-index)",
- "tcprint 0.1.4",
+ "tcprint 0.1.5",
  "tempfile 3.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "timeago 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "url 1.7.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -902,7 +902,7 @@ dependencies = [
 
 [[package]]
 name = "tcprint"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "termcolor 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
