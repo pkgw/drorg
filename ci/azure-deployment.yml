@@ -9,6 +9,8 @@ steps:
 
 # TEMP ordering while I debug this
 - bash: |
+    set -ex
+    env |grep CARGO_REGISTRY |sed -e 's/[a-z]/x/'
     cranko cargo foreach-released publish
   displayName: Publish Cargo crates
   env:
