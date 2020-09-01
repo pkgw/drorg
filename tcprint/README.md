@@ -6,6 +6,6 @@ Structured, colorized printing to the terminal using
 
 ## Copyright and License
 
-Copyright 2018 Peter Williams. Licensed under the MIT License. All
+Copyright 2018-2020 Peter Williams. Licensed under the MIT License. All
 contributions to this project will be assumed to be licensed under the same
 terms, unless explicitly otherwise stated.
