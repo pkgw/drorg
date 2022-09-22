@@ -176,7 +176,7 @@ impl PrintStreams {
             PrintDestination::Stdout => &mut self.stdout,
         };
 
-        stream.set_color(&color)?;
+        stream.set_color(color)?;
         let r = write!(stream, "{}", args);
         stream.reset()?;
         r
@@ -332,7 +332,7 @@ impl<C> ColorPrintState<C> {
 
     /// Work around borrowck/macro issues.
     #[doc(hidden)]
-    pub fn split_into_components_mut<'a>(&'a mut self) -> (&'a mut PrintStreams, &'a C) {
+    pub fn split_into_components_mut(&mut self) -> (&mut PrintStreams, &C) {
         (&mut self.streams, &self.colors)
     }
 }
