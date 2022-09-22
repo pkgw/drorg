@@ -3,6 +3,9 @@
 
 //! The local database of document information.
 
+// Get rid of some clippy complaints associated with the Insertable macro.
+#![allow(clippy::extra_unused_lifetimes)]
+
 use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
@@ -23,7 +26,7 @@ pub fn get_db_connection() -> Result<SqliteConnection> {
     let as_str = p
         .to_str()
         .ok_or_else(|| format_err!("cannot express user data path as Unicode"))?;
-    Ok(SqliteConnection::establish(&as_str)?)
+    Ok(SqliteConnection::establish(as_str)?)
 }
 
 /// Superficial information about a logged-in account.
@@ -32,7 +35,7 @@ pub fn get_db_connection() -> Result<SqliteConnection> {
 /// table to be able to associate documents with accounts via integers rather
 /// than strings. I'm not sure if this actually helps but an email address per
 /// doc seems like a bit much. Premature optimization never hurts, right?
-#[derive(Clone, Debug, Identifiable, PartialEq, Queryable)]
+#[derive(Clone, Debug, Eq, Identifiable, PartialEq, Queryable)]
 #[table_name = "accounts"]
 pub struct Account {
     /// The unique identifier of this account.
@@ -49,7 +52,7 @@ pub struct Account {
 /// See the documentation for `Account` for explanations of the fields. This
 /// type is different than Account in that it contains references to borrowed
 /// values for non-Copy types, rather than owned values.
-#[derive(Debug, PartialEq, Insertable)]
+#[derive(Debug, Eq, PartialEq, Insertable)]
 #[table_name = "accounts"]
 pub struct NewAccount<'a> {
     /// The email address associated with this account.
@@ -64,7 +67,7 @@ impl<'a> NewAccount<'a> {
 }
 
 /// A document residing on a Google Drive.
-#[derive(Clone, Debug, Identifiable, PartialEq, Queryable)]
+#[derive(Clone, Debug, Eq, Identifiable, PartialEq, Queryable)]
 #[table_name = "docs"]
 pub struct Doc {
     /// The unique identifier of this document.
@@ -154,7 +157,7 @@ impl Doc {
 /// See the documentation for `Doc` for explanations of the fields. This type
 /// is different than Doc in that it contains references to borrowed values
 /// for non-Copy types, rather than owned values.
-#[derive(Debug, Insertable, PartialEq)]
+#[derive(Debug, Eq, Insertable, PartialEq)]
 #[table_name = "docs"]
 pub struct NewDoc<'a> {
     /// The unique identifier of this document.
@@ -194,7 +197,7 @@ impl<'a> NewDoc<'a> {
             .modified_time
             .as_ref()
             .ok_or_else(|| format_err!("no modifiedTime provided with file object"))
-            .and_then(|text| Ok(DateTime::parse_from_rfc3339(&text)?))?
+            .and_then(|text| Ok(DateTime::parse_from_rfc3339(text)?))?
             .naive_utc();
         let size = match file.size.as_ref() {
             Some(text) => Some(text.parse()?), // I don't think there's a better way to unwrap?
@@ -214,7 +217,7 @@ impl<'a> NewDoc<'a> {
 }
 
 /// A parent-child relationship link between two documents.
-#[derive(Debug, PartialEq, Queryable)]
+#[derive(Debug, Eq, PartialEq, Queryable)]
 pub struct Link {
     /// The account ID for which this linkage is relevant.
     pub account_id: i32,
@@ -231,7 +234,7 @@ pub struct Link {
 /// See the documentation for `Link` for explanations of the fields. This type
 /// is different than Link in that it contains references to borrowed values
 /// for non-Copy types, rather than owned values.
-#[derive(Debug, Insertable, PartialEq)]
+#[derive(Debug, Eq, Insertable, PartialEq)]
 #[table_name = "links"]
 pub struct NewLink<'a> {
     /// The account ID for which this linkage is relevant.
@@ -259,7 +262,7 @@ impl<'a> NewLink<'a> {
 ///
 /// The same document may be associated with more than one account, so we need
 /// a side table to track the associations.
-#[derive(Debug, PartialEq, Queryable)]
+#[derive(Debug, Eq, PartialEq, Queryable)]
 pub struct AccountAssociation {
     /// The ID of the associated document.
     pub doc_id: String,
@@ -278,7 +281,7 @@ pub struct AccountAssociation {
 /// fields. This type is different than AccountAssociation in that it contains
 /// references to borrowed values for non-Copy types, rather than owned
 /// values.
-#[derive(Debug, Insertable, PartialEq)]
+#[derive(Debug, Eq, Insertable, PartialEq)]
 #[table_name = "account_associations"]
 pub struct NewAccountAssociation<'a> {
     /// The ID of the associated document.
@@ -296,7 +299,7 @@ impl<'a> NewAccountAssociation<'a> {
 }
 
 /// An document that has been entered in some list.
-#[derive(Debug, PartialEq, Queryable)]
+#[derive(Debug, Eq, PartialEq, Queryable)]
 pub struct ListItem {
     /// The listing ID of this row.
     ///
@@ -320,7 +323,7 @@ pub const CLI_LAST_PRINT_ID: i32 = 0;
 pub const CLI_CWD_ID: i32 = 1;
 
 /// Data representing a new list-item row to insert into the database.
-#[derive(Debug, Insertable, PartialEq)]
+#[derive(Debug, Eq, Insertable, PartialEq)]
 #[table_name = "listitems"]
 pub struct NewListItem<'a> {
     /// The listing ID of this row.

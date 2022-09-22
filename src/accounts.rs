@@ -135,13 +135,13 @@ impl Account {
 
     /// Ask Google for the email address associated with this account.
     pub fn fetch_email_address(&mut self, secret: &ApplicationSecret) -> Result<String> {
-        let about = self.with_drive_hub_nosave(secret, |hub| google_apis::get_about(&hub))?;
-        let user = about.user.ok_or(format_err!(
-            "server response did not include user information"
-        ))?;
+        let about = self.with_drive_hub_nosave(secret, |hub| google_apis::get_about(hub))?;
+        let user = about
+            .user
+            .ok_or_else(|| format_err!("server response did not include user information"))?;
         let email = user
             .email_address
-            .ok_or(format_err!("server response did not include email address"))?;
+            .ok_or_else(|| format_err!("server response did not include email address"))?;
 
         // Kind of ugly: set the save path for our JSON file now that we know
         // what the associated email is. Then we can save the data. Note that
@@ -168,7 +168,7 @@ impl Account {
                 .doit()
                 .adapt()?;
             info.start_page_token
-                .ok_or(format_err!("server response did not include token"))
+                .ok_or_else(|| format_err!("server response did not include token"))
         })?;
 
         self.data.change_page_token = Some(token);
@@ -206,7 +206,7 @@ pub fn get_accounts() -> Result<impl Iterator<Item = Result<(String, Account)>>>
 
                 match Account::load(&email) {
                     Ok(acct) => Some(Ok((email, acct))),
-                    Err(e) => Some(Err(e.into())),
+                    Err(e) => Some(Err(e)),
                 }
             }
         }

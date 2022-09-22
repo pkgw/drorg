@@ -82,7 +82,7 @@ impl Application {
             // like the least-bad way to make sure we get info about the root
             // document.
             let root_id = {
-                let file = google_apis::get_file(&hub, "root", |call| {
+                let file = google_apis::get_file(hub, "root", |call| {
                     call.param(
                         "fields",
                         "id,mimeType,modifiedTime,name,parents,\
@@ -94,7 +94,7 @@ impl Application {
                     .values(&new_doc)
                     .execute(&self.conn)?;
 
-                let new_assn = database::NewAccountAssociation::new(&new_doc.id, the_account_id);
+                let new_assn = database::NewAccountAssociation::new(new_doc.id, the_account_id);
                 diesel::replace_into(schema::account_associations::table)
                     .values(&new_assn)
                     .execute(&self.conn)?;
@@ -102,7 +102,7 @@ impl Application {
                 new_doc.id.to_owned()
             };
 
-            for maybe_file in google_apis::list_files(&hub, |call| {
+            for maybe_file in google_apis::list_files(hub, |call| {
                 call.spaces("drive").param(
                     "fields",
                     "files(id,mimeType,modifiedTime,name,parents,\
@@ -115,7 +115,7 @@ impl Application {
                     .values(&new_doc)
                     .execute(&self.conn)?;
 
-                let new_assn = database::NewAccountAssociation::new(&new_doc.id, the_account_id);
+                let new_assn = database::NewAccountAssociation::new(new_doc.id, the_account_id);
                 diesel::replace_into(schema::account_associations::table)
                     .values(&new_assn)
                     .execute(&self.conn)?;
@@ -126,7 +126,7 @@ impl Application {
 
                 if let Some(parents) = file.parents.as_ref() {
                     for pid in parents {
-                        let new_link = database::NewLink::new(the_account_id, pid, &new_doc.id);
+                        let new_link = database::NewLink::new(the_account_id, pid, new_doc.id);
                         diesel::replace_into(schema::links::table)
                             .values(&new_link)
                             .execute(&self.conn)?;
@@ -154,10 +154,10 @@ impl Application {
             .data
             .change_page_token
             .take()
-            .ok_or(format_err!("no change-paging token for {}", email))?;
+            .ok_or_else(|| format_err!("no change-paging token for {}", email))?;
 
         let token = account.with_drive_hub(&self.secret, |hub| {
-            let mut lister = google_apis::list_changes(&hub, &token, |call| {
+            let mut lister = google_apis::list_changes(hub, &token, |call| {
                 call.spaces("drive")
                     .supports_team_drives(true)
                     .include_team_drive_items(true)
@@ -224,8 +224,7 @@ impl Application {
                         .values(&new_doc)
                         .execute(&self.conn)?;
 
-                    let new_assn =
-                        database::NewAccountAssociation::new(&new_doc.id, the_account_id);
+                    let new_assn = database::NewAccountAssociation::new(new_doc.id, the_account_id);
                     diesel::replace_into(schema::account_associations::table)
                         .values(&new_assn)
                         .execute(&self.conn)?;
@@ -347,7 +346,7 @@ impl Application {
         // If nothing, return -- without clearing the previous cli-last-print
         // listing, if it exists.
 
-        if docs.len() == 0 {
+        if docs.is_empty() {
             return Ok(());
         }
 
@@ -512,7 +511,7 @@ impl LinkageTable {
     pub fn find_parent_paths(&self, start_id: &str) -> Vec<Vec<String>> {
         use std::collections::HashSet;
 
-        assert_eq!(self.transposed, true);
+        assert!(self.transposed);
 
         let roots: HashSet<NodeIndex> = self.graph.externals(Direction::Outgoing).collect();
 
@@ -529,7 +528,7 @@ impl LinkageTable {
 
         let mut results = Vec::new();
 
-        while queue.len() > 0 {
+        while !queue.is_empty() {
             let cur_ix = queue.pop().unwrap();
 
             if roots.contains(&cur_ix) {
@@ -538,6 +537,7 @@ impl LinkageTable {
                 let mut ix = cur_ix;
 
                 // Can't do this as a `while let` loop since the bindings shadow
+                #[allow(clippy::while_let_loop)]
                 loop {
                     if let Some(new_ix) = path_data.get(&ix).unwrap() {
                         path.push(self.graph.node_weight(ix).unwrap().clone());
@@ -598,7 +598,7 @@ impl Application {
     /// documents.
     ///
     /// The default setting is that at least one document must match.
-    pub fn get_docs<'a>(&'a mut self) -> GetDocBuilder<'a> {
+    pub fn get_docs(&mut self) -> GetDocBuilder {
         GetDocBuilder {
             app: self,
             zero_ok: false,
@@ -646,7 +646,7 @@ impl<'a> GetDocBuilder<'a> {
 
             // Note: we don't explicitly handle more than one match. Under the
             // current architecture that should never happen.
-            if matches.len() < 1 {
+            if matches.is_empty() {
                 return Err(format_err!(
                     "the virtual CWD (\"{}\") is not currently defined",
                     spec
@@ -671,11 +671,9 @@ impl<'a> GetDocBuilder<'a> {
                 for pid in table
                     .find_parent_paths(&cwd.id)
                     .iter_mut()
-                    .map(|id_path| id_path.pop())
+                    .filter_map(|id_path| id_path.pop())
                 {
-                    if let Some(pid) = pid {
-                        parent_ids.insert(pid);
-                    }
+                    parent_ids.insert(pid);
                 }
             }
 
@@ -683,11 +681,10 @@ impl<'a> GetDocBuilder<'a> {
         }
 
         // recent-listing reference?
-        if spec.starts_with("%") {
+        if let Some(number_text) = spec.strip_prefix('%') {
             use database::{ListItem, CLI_LAST_PRINT_ID};
             use schema::listitems::dsl::*;
 
-            let number_text = &spec[1..];
             let index = number_text.parse::<i32>()? - 1; // 1-based to 0-based
             let maybe_row = listitems
                 .filter(listing_id.eq(CLI_LAST_PRINT_ID).and(position.eq(index)))
@@ -722,7 +719,7 @@ impl<'a> GetDocBuilder<'a> {
         let spec = spec.as_ref();
         let mut r = self.process_impl(spec)?;
 
-        if !self.zero_ok && r.len() == 0 {
+        if !self.zero_ok && r.is_empty() {
             return Err(format_err!(
                 "no documents matched the specification \"{}\"",
                 spec
@@ -746,7 +743,7 @@ impl<'a> GetDocBuilder<'a> {
         let spec = spec.as_ref();
         let mut r = self.process_impl(spec)?;
 
-        if r.len() == 0 {
+        if r.is_empty() {
             return Err(format_err!(
                 "no documents matched the specification \"{}\"",
                 spec
@@ -780,10 +777,10 @@ impl<'a> GetDocBuilder<'a> {
         }
 
         tcprintln!(self.app.ps, (""));
-        return Err(format_err!(
+        Err(format_err!(
             "specification should have matched exactly one document; \
              please be more specific"
-        ));
+        ))
     }
 
     /// Return a vector of all documents.

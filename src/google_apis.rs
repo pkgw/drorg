@@ -532,17 +532,15 @@ where
 
         if let Some(page_token) = listing.next_page_token {
             (*self.next_page_token).replace(page_token);
+        } else if let Some(start_page_token) = listing.new_start_page_token {
+            (*self.next_page_token).replace(start_page_token);
+            self.final_page = true;
         } else {
-            if let Some(start_page_token) = listing.new_start_page_token {
-                (*self.next_page_token).replace(start_page_token);
-                self.final_page = true;
-            } else {
-                self.finished = true;
-                return Some(Err(format_err!(
-                    "API call failed: Neither next_page_token nor \
+            self.finished = true;
+            return Some(Err(format_err!(
+                "API call failed: Neither next_page_token nor \
                      new_start_page_token provided"
-                )));
-            }
+            )));
         }
 
         let mut changes_iter = match listing.changes {

@@ -32,6 +32,7 @@ extern crate url;
 extern crate yup_oauth2;
 
 use diesel::prelude::*;
+use std::collections::hash_map::Entry;
 use std::ffi::OsStr;
 use std::process;
 use std::result::Result as StdResult;
@@ -113,13 +114,9 @@ impl DrorgInfoOptions {
             let mut path_reprs = Vec::new();
 
             for acct in &accounts {
-                // This hashmap stuff is inefficient basically because the
-                // Entry API doesn't let us work with a value-creation
-                // function that returns a Result.
-
-                if !linkages.contains_key(&acct.id) {
+                if let Entry::Vacant(e) = linkages.entry(acct.id) {
                     let table = app.load_linkage_table(acct.id, true)?;
-                    linkages.insert(acct.id, table);
+                    e.insert(table);
                 }
 
                 let link_table = linkages.get(&acct.id).unwrap();
@@ -134,7 +131,7 @@ impl DrorgInfoOptions {
                                 .filter(id.eq(&docid))
                                 .first::<database::Doc>(&app.conn)
                                 .unwrap();
-                            elem.name.clone()
+                            elem.name
                         })
                         .collect();
 

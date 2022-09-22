@@ -9,7 +9,7 @@ trigger:
 jobs:
 - job: Linux
   pool:
-    vmImage: ubuntu-16.04
+    vmImage: ubuntu-latest
 
   # Deployment creds included unconditionally in this simple workflow; secrets
   # will be witheheld in PR builds.
@@ -40,17 +40,15 @@ jobs:
 
   - bash: |
       cranko release-workflow apply-versions
+      git add .
+      cranko release-workflow commit
+      git show
     displayName: Apply versions
 
   - bash: |
       cargo build --all
       cargo test --all
     displayName: Build and test
-
-  - bash: |
-      git status
-      git diff
-    displayName: Show cranko release edits
 
   - ${{ if eq(variables['Build.SourceBranchName'], 'rc') }}:
     - template: azure-deployment.yml
