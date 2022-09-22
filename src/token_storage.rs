@@ -32,7 +32,7 @@ impl<'a> ScopeList<'a> {
             .collect::<Vec<&str>>();
         sv.sort();
         let mut sh = DefaultHasher::new();
-        &sv.hash(&mut sh);
+        sv.hash(&mut sh);
         let sv = sv;
 
         ScopeList {
